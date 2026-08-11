@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import ReactFlow, { 
   addEdge, 
   Background, 
@@ -14,7 +14,6 @@ import 'reactflow/dist/style.css';
 
 // Custom Node Component with Handles and Delete Button
 const CustomNodeComponent = ({ data, selected, id }: any) => {
-  // We'll use a custom delete function passed through data
   const onDelete = data.onDelete;
 
   return (
@@ -28,7 +27,6 @@ const CustomNodeComponent = ({ data, selected, id }: any) => {
       cursor-grab active:cursor-grabbing
       group
     `}>
-      {/* Delete button - appears on hover */}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -42,7 +40,6 @@ const CustomNodeComponent = ({ data, selected, id }: any) => {
         <X size={14} />
       </button>
 
-      {/* Target Handle (Left side - input) */}
       <Handle
         type="target"
         position={Position.Left}
@@ -72,7 +69,6 @@ const CustomNodeComponent = ({ data, selected, id }: any) => {
         </div>
       </div>
 
-      {/* Source Handle (Right side - output) */}
       <Handle
         type="source"
         position={Position.Right}
@@ -96,19 +92,51 @@ interface WorkflowCanvasProps {
   setNodes?: (nodes: Node[]) => void;
   selectedNode?: Node | null;
   setSelectedNode?: (node: Node | null) => void;
+  onUndoRedoChange?: (canUndo: boolean, canRedo: boolean) => void;
 }
 
-export default function WorkflowCanvas({ 
+const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({ 
   nodes: externalNodes = [], 
   setNodes: setExternalNodes,
   selectedNode,
-  setSelectedNode 
-}: WorkflowCanvasProps) {
+  setSelectedNode,
+  onUndoRedoChange
+}, ref) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const isUpdatingRef = useRef(false);
+  const isUndoRedoRef = useRef(false);
+  const isDeletingRef = useRef(false);
+
+  // Undo/Redo state
+  const [history, setHistory] = useState<{ nodes: Node[]; edges: any[] }[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Delete node function - Fixed to prevent render loops
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    if (isDeletingRef.current) return;
+    if (!window.confirm('Are you sure you want to delete this node?')) return;
+    
+    isDeletingRef.current = true;
+    
+    setNodes((nds) => {
+      const updatedNodes = nds.filter((node) => node.id !== nodeId);
+      // Clear selection if the deleted node was selected
+      if (selectedNode?.id === nodeId && setSelectedNode) {
+        setSelectedNode(null);
+      }
+      return updatedNodes;
+    });
+    
+    // Reset the deleting flag after a short delay
+    setTimeout(() => {
+      isDeletingRef.current = false;
+    }, 100);
+  }, [selectedNode, setSelectedNode]);
 
   // Load saved nodes from localStorage on mount
   useEffect(() => {
@@ -117,7 +145,6 @@ export default function WorkflowCanvas({
       try {
         const parsedNodes = JSON.parse(savedNodes);
         if (parsedNodes.length > 0) {
-          // Add delete function to each node's data
           const nodesWithDelete = parsedNodes.map((node: Node) => ({
             ...node,
             data: {
@@ -129,18 +156,114 @@ export default function WorkflowCanvas({
           if (setExternalNodes) {
             setExternalNodes(nodesWithDelete);
           }
+          setHistory([{ nodes: nodesWithDelete, edges: [] }]);
+          setHistoryIndex(0);
         }
       } catch (error) {
         console.error('Error loading saved nodes:', error);
       }
     }
     setIsInitialized(true);
-  }, []);
+  }, []); // Remove handleDeleteNode dependency to prevent re-run
+
+  // Update undo/redo state and notify parent
+  const updateUndoRedoState = useCallback(() => {
+    const undo = historyIndex > 0;
+    const redo = historyIndex < history.length - 1;
+    setCanUndo(undo);
+    setCanRedo(redo);
+    if (onUndoRedoChange) {
+      onUndoRedoChange(undo, redo);
+    }
+  }, [historyIndex, history.length, onUndoRedoChange]);
+
+  // Notify parent when undo/redo state changes
+  useEffect(() => {
+    updateUndoRedoState();
+  }, [historyIndex, history.length, updateUndoRedoState]);
+
+  // Save state to history
+  const saveStateToHistory = useCallback(() => {
+    if (isUndoRedoRef.current || !isInitialized || isDeletingRef.current) return;
+    
+    const newState = { 
+      nodes: JSON.parse(JSON.stringify(nodes)), 
+      edges: JSON.parse(JSON.stringify(edges)) 
+    };
+    
+    setHistory(prev => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(newState);
+      if (newHistory.length > 50) {
+        newHistory.shift();
+      }
+      return newHistory;
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+  }, [nodes, edges, historyIndex, isInitialized]);
+
+  // Save state on changes - Only when not deleting
+  useEffect(() => {
+    if (!isUndoRedoRef.current && !isDeletingRef.current && isInitialized) {
+      saveStateToHistory();
+    }
+  }, [nodes, edges, isInitialized, saveStateToHistory]);
+
+  // Undo function
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      isUndoRedoRef.current = true;
+      const prevState = history[historyIndex - 1];
+      setNodes(prevState.nodes);
+      setEdges(prevState.edges);
+      setHistoryIndex(prev => prev - 1);
+      
+      if (setExternalNodes) {
+        setExternalNodes(prevState.nodes);
+      }
+      
+      setTimeout(() => {
+        isUndoRedoRef.current = false;
+      }, 100);
+      return true;
+    }
+    return false;
+  }, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
+
+  // Redo function
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      isUndoRedoRef.current = true;
+      const nextState = history[historyIndex + 1];
+      setNodes(nextState.nodes);
+      setEdges(nextState.edges);
+      setHistoryIndex(prev => prev + 1);
+      
+      if (setExternalNodes) {
+        setExternalNodes(nextState.nodes);
+      }
+      
+      setTimeout(() => {
+        isUndoRedoRef.current = false;
+      }, 100);
+      return true;
+    }
+    return false;
+  }, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
+
+  // Expose functions to parent
+  useImperativeHandle(ref, () => ({
+    undo,
+    redo,
+    getState: () => ({
+      canUndo: historyIndex > 0,
+      canRedo: historyIndex < history.length - 1,
+    })
+  }), [undo, redo, historyIndex, history.length]);
 
   // Save nodes to localStorage whenever they change
   useEffect(() => {
-    if (isInitialized && !isUpdatingRef.current) {
-      // Remove onDelete function before saving to localStorage
+    if (isInitialized && !isUpdatingRef.current && !isDeletingRef.current) {
       const nodesToSave = nodes.map((node) => {
         const { onDelete, ...restData } = node.data;
         return {
@@ -154,7 +277,6 @@ export default function WorkflowCanvas({
       } else {
         localStorage.removeItem('workflowNodes');
       }
-      // Sync with parent
       if (setExternalNodes) {
         setExternalNodes(nodes);
       }
@@ -163,12 +285,11 @@ export default function WorkflowCanvas({
 
   // Handle external nodes updates
   useEffect(() => {
-    if (isInitialized && externalNodes.length > 0) {
+    if (isInitialized && externalNodes.length > 0 && !isDeletingRef.current) {
       const currentNodesString = JSON.stringify(nodes);
       const externalNodesString = JSON.stringify(externalNodes);
       if (currentNodesString !== externalNodesString) {
         isUpdatingRef.current = true;
-        // Add delete function to external nodes
         const nodesWithDelete = externalNodes.map((node: Node) => ({
           ...node,
           data: {
@@ -182,24 +303,12 @@ export default function WorkflowCanvas({
         }, 0);
       }
     }
-  }, [externalNodes, setNodes, isInitialized, nodes]);
-
-  // Delete node function
-  const handleDeleteNode = useCallback((nodeId: string) => {
-    if (window.confirm('Are you sure you want to delete this node?')) {
-      setNodes((nds) => {
-        const updatedNodes = nds.filter((node) => node.id !== nodeId);
-        // Clear selection if the deleted node was selected
-        if (selectedNode?.id === nodeId && setSelectedNode) {
-          setSelectedNode(null);
-        }
-        return updatedNodes;
-      });
-    }
-  }, [setNodes, selectedNode, setSelectedNode]);
+  }, [externalNodes, setNodes, isInitialized, nodes, handleDeleteNode]);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
+    (params: Connection) => {
+      setEdges((eds) => addEdge({ ...params, animated: true }, eds));
+    },
     [setEdges]
   );
 
@@ -294,7 +403,7 @@ export default function WorkflowCanvas({
           icon: getIcon(type),
           bgColor: getColor(type),
           iconColor: getIconColor(type),
-          onDelete: handleDeleteNode, 
+          onDelete: handleDeleteNode,
         },
       };
 
@@ -362,4 +471,8 @@ export default function WorkflowCanvas({
       </ReactFlow>
     </div>
   );
-}
+});
+
+WorkflowCanvas.displayName = 'WorkflowCanvas';
+
+export default WorkflowCanvas;

@@ -1,29 +1,133 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Node } from 'reactflow';
 import Sidebar from '../components/Sidebar';
 import WorkflowCanvas from '../components/WorkflowCanvas';
 import { 
   Save, Play, 
-  ZoomIn, ZoomOut, GitBranch, Trash2 
+  ZoomIn, ZoomOut, GitBranch, Trash2,
+  Download, Upload, Undo2, Redo2
 } from 'lucide-react';
 
 export default function Editor() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [zoom, setZoom] = useState(100);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<any>(null);
 
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
   const handleZoomReset = () => setZoom(100);
 
-  const clearCanvas = () => {
+   const clearCanvas = () => {
     if (nodes.length === 0) return;
     if (window.confirm('Are you sure you want to clear all nodes?')) {
+    
       setNodes([]);
+      
+      localStorage.removeItem('workflowNodes');
     }
   };
 
-  return (
+   const handleUndoRedoChange = useCallback((undo: boolean, redo: boolean) => {
+    setCanUndo(undo);
+    setCanRedo(redo);
+  }, []);
+
+
+  // Export workflow
+ const exportWorkflow = useCallback(() => {
+    const workflow = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      nodes: nodes,
+      metadata: {
+        nodeCount: nodes.length,
+      }
+    };
+    
+    const blob = new Blob([JSON.stringify(workflow, null, 2)], { 
+      type: 'application/json' 
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `workflow-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [nodes]);
+
+  // Import workflow
+  const importWorkflow = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const workflow = JSON.parse(e.target?.result as string);
+        if (workflow.nodes && Array.isArray(workflow.nodes)) {
+          if (window.confirm(`Import workflow with ${workflow.nodes.length} nodes?`)) {
+            setNodes(workflow.nodes);
+            localStorage.setItem('workflowNodes', JSON.stringify(workflow.nodes));
+          }
+        } else {
+          alert('Invalid workflow file format');
+        }
+      } catch (error) {
+        alert('Error reading workflow file');
+        console.error(error);
+      }
+    };
+    reader.readAsText(file);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, [setNodes]);
+
+  // Handle undo
+  const handleUndo = useCallback(() => {
+    if (canvasRef.current) {
+      canvasRef.current.undo();
+      const state = canvasRef.current.getState();
+      setCanUndo(state.canUndo);
+      setCanRedo(state.canRedo);
+    }
+  }, []);
+
+  // Handle redo
+  const handleRedo = useCallback(() => {
+    if (canvasRef.current) {
+      canvasRef.current.redo();
+      const state = canvasRef.current.getState();
+      setCanUndo(state.canUndo);
+      setCanRedo(state.canRedo);
+    }
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        handleUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+ return (
     <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
       {/* Sidebar */}
       <aside className="w-[320px] min-w-[320px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
@@ -62,40 +166,58 @@ export default function Editor() {
           </div>
           
           <div className="ml-auto flex items-center gap-1.5">
-            {/* Zoom Controls */}
+            {/* Undo/Redo Buttons */}
             <button 
-              onClick={handleZoomOut}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
-              title="Zoom Out"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Undo (Ctrl+Z)"
             >
-              <ZoomOut size={16} />
+              <Undo2 size={16} />
             </button>
             <button 
-              onClick={handleZoomReset}
-              className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors min-w-[40px]"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Redo (Ctrl+Y)"
             >
-              {zoom}%
-            </button>
-            <button 
-              onClick={handleZoomIn}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
-              title="Zoom In"
-            >
-              <ZoomIn size={16} />
+              <Redo2 size={16} />
             </button>
             
             <div className="w-px h-6 bg-gray-200 mx-1" />
             
-            {/* Actions */}
-            <button className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30">
-              <Save size={14} />
-              Save
+            {/* Export/Import Buttons */}
+            <button 
+              onClick={exportWorkflow}
+              disabled={nodes.length === 0}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Export workflow"
+            >
+              <Download size={16} />
             </button>
             
-            <button className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30">
-              <Play size={14} />
-              Run
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+              title="Import workflow"
+            >
+              <Upload size={16} />
             </button>
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={importWorkflow}
+              className="hidden"
+            />
+            
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+            
+           
+            
+            
+           
           </div>
         </header>
 
@@ -103,10 +225,12 @@ export default function Editor() {
           {/* Canvas */}
           <div className="w-full h-full">
             <WorkflowCanvas 
+              ref={canvasRef}
               nodes={nodes} 
               setNodes={setNodes}
               selectedNode={selectedNode}
               setSelectedNode={setSelectedNode}
+              onUndoRedoChange={handleUndoRedoChange}
             />
           </div>
         </div>
