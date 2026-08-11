@@ -1,4 +1,4 @@
-import { Play, Mail, Globe, StopCircle, Zap, Database, Code, Clock, ChevronDown, Search, Plus } from "lucide-react";
+import { Play, Mail, Globe, StopCircle, Zap, Database, Code, Clock, Search, Plus } from "lucide-react";
 import { useState } from "react";
 
 const nodes = [
@@ -101,8 +101,8 @@ const nodes = [
 ];
 
 export default function Sidebar() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [searchTerm] = useState("");
+  const [isCollapsed] = useState(false);
 
   const filteredNodes = nodes.filter(node =>
     node.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -119,10 +119,6 @@ export default function Sidebar() {
       transition-all duration-300
       ${isCollapsed ? 'w-14 min-w-14' : ''}
     `}>
-      
-
-      
-
       {/* Node List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-[#2d2d2d] scrollbar-track-transparent">
         {filteredNodes.length > 0 ? (
@@ -217,8 +213,6 @@ export default function Sidebar() {
           </div>
         )}
       </div>
-
-      
     </div>
   );
 }

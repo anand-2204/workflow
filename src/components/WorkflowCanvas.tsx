@@ -8,20 +8,33 @@ import ReactFlow, {
   useEdgesState,
 } from 'reactflow';
 import type { Connection, Node } from 'reactflow';
+import { Handle, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-// Custom Node Component
+// Custom Node Component with Handles
 const CustomNodeComponent = ({ data, selected }: any) => (
   <div className={`
-    px-4 py-3 rounded-xl shadow-md border-2 transition-all duration-200 min-w-[140px]
+    px-4 py-3 rounded-xl shadow-md border-2 transition-all duration-200 min-w-[140px] relative
     ${selected 
       ? 'border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/20' 
       : 'border-gray-200 hover:border-blue-300 hover:shadow-lg'
     }
     ${data.bgColor || 'bg-white'}
     cursor-grab active:cursor-grabbing
-    group relative
+    group
   `}>
+    {/* Target Handle (Left side - input) */}
+    <Handle
+      type="target"
+      position={Position.Left}
+      className="w-3 h-3 bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
+      style={{ 
+        left: -6,
+        top: '50%',
+        transform: 'translateY(-50%)',
+      }}
+    />
+    
     <div className="flex items-center gap-3">
       {data.icon && (
         <div className={`text-xl ${data.iconColor || 'text-gray-600'}`}>
@@ -39,6 +52,18 @@ const CustomNodeComponent = ({ data, selected }: any) => (
         )}
       </div>
     </div>
+
+    {/* Source Handle (Right side - output) */}
+    <Handle
+      type="source"
+      position={Position.Right}
+      className="w-3 h-3 bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
+      style={{ 
+        right: -6,
+        top: '50%',
+        transform: 'translateY(-50%)',
+      }}
+    />
   </div>
 );
 
@@ -59,26 +84,63 @@ export default function WorkflowCanvas({
   selectedNode,
   setSelectedNode 
 }: WorkflowCanvasProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(externalNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const isUpdatingRef = useRef(false);
 
-  // Sync external nodes with internal state
+  // Load saved nodes from localStorage on mount
   useEffect(() => {
-    if (externalNodes.length > 0) {
-      setNodes(externalNodes);
+    const savedNodes = localStorage.getItem('workflowNodes');
+    if (savedNodes) {
+      try {
+        const parsedNodes = JSON.parse(savedNodes);
+        if (parsedNodes.length > 0) {
+          setNodes(parsedNodes);
+          if (setExternalNodes) {
+            setExternalNodes(parsedNodes);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading saved nodes:', error);
+      }
     }
-  }, [externalNodes, setNodes]);
+    setIsInitialized(true);
+  }, []);
 
-  // Sync internal nodes to external
+  // Save nodes to localStorage whenever they change
   useEffect(() => {
-    if (setExternalNodes) {
-      setExternalNodes(nodes);
+    if (isInitialized && !isUpdatingRef.current) {
+      if (nodes.length > 0) {
+        localStorage.setItem('workflowNodes', JSON.stringify(nodes));
+      } else {
+        localStorage.removeItem('workflowNodes');
+      }
+      // Sync with parent
+      if (setExternalNodes) {
+        setExternalNodes(nodes);
+      }
     }
-  }, [nodes, setExternalNodes]);
+  }, [nodes, setExternalNodes, isInitialized]);
+
+  // Handle external nodes updates
+  useEffect(() => {
+    if (isInitialized && externalNodes.length > 0) {
+      const currentNodesString = JSON.stringify(nodes);
+      const externalNodesString = JSON.stringify(externalNodes);
+      if (currentNodesString !== externalNodesString) {
+        isUpdatingRef.current = true;
+        setNodes(externalNodes);
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 0);
+      }
+    }
+  }, [externalNodes, setNodes, isInitialized, nodes]);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
+    (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
     [setEdges]
   );
 
@@ -88,28 +150,26 @@ export default function WorkflowCanvas({
     }
   }, [setSelectedNode]);
 
-  const onNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
-    if (setExternalNodes) {
-      const updatedNodes = nodes.map(n => 
+  const onNodeDragStop = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      const updatedNodes = nodes.map((n) =>
         n.id === node.id ? { ...n, position: node.position } : n
       );
-      setExternalNodes(updatedNodes);
-    }
-  }, [nodes, setExternalNodes]);
+      setNodes(updatedNodes);
+    },
+    [nodes, setNodes]
+  );
 
-  // Handle drop from sidebar
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       
-      // Get the node type from the drag data
       const type = event.dataTransfer.getData('application/reactflow');
       
       if (!type) {
         return;
       }
 
-      // Get the drop position
       if (!reactFlowWrapper.current) {
         return;
       }
@@ -121,10 +181,8 @@ export default function WorkflowCanvas({
         y: event.clientY - reactFlowBounds.top - 40,
       };
 
-      // Create node label from type
       const label = type.charAt(0).toUpperCase() + type.slice(1);
       
-      // Get icon for node type
       const getIcon = (type: string) => {
         const icons: Record<string, string> = {
           start: '▶️',
@@ -139,7 +197,6 @@ export default function WorkflowCanvas({
         return icons[type] || '📦';
       };
 
-      // Get color for node type
       const getColor = (type: string) => {
         const colors: Record<string, string> = {
           start: 'bg-emerald-50 border-emerald-300',
@@ -181,7 +238,6 @@ export default function WorkflowCanvas({
         },
       };
 
-      // Update internal state
       setNodes((nds) => [...nds, newNode]);
     },
     [setNodes]
@@ -231,7 +287,12 @@ export default function WorkflowCanvas({
           showInteractive={false}
           position="bottom-right"
         />
-       
+        <MiniMap 
+          className="bg-white border border-gray-200 rounded-lg shadow-lg"
+          nodeColor="#3b82f6"
+          maskColor="rgba(0,0,0,0.05)"
+          position="bottom-left"
+        />
       </ReactFlow>
     </div>
   );

@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import type { Node } from 'reactflow';
 import Sidebar from '../components/Sidebar';
 import WorkflowCanvas from '../components/WorkflowCanvas';
 import { 
-  Plus, Save, Play, Settings, Undo2, Redo2, 
-  ZoomIn, ZoomOut, Maximize, GitBranch, Trash2 
+  Save, Play, 
+  ZoomIn, ZoomOut, GitBranch, Trash2 
 } from 'lucide-react';
 
 export default function Editor() {
-  const [nodes, setNodes] = useState([]);
-  const [selectedNode, setSelectedNode] = useState(null);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [zoom, setZoom] = useState(100);
 
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
@@ -19,8 +20,14 @@ export default function Editor() {
     if (nodes.length === 0) return;
     if (window.confirm('Are you sure you want to clear all nodes?')) {
       setNodes([]);
+      localStorage.removeItem('workflowNodes');
     }
   };
+
+  // Handle node updates from canvas
+  const handleNodesChange = useCallback((updatedNodes: Node[]) => {
+    setNodes(updatedNodes);
+  }, []);
 
   return (
     <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
@@ -103,7 +110,7 @@ export default function Editor() {
           <div className="w-full h-full">
             <WorkflowCanvas 
               nodes={nodes} 
-              setNodes={setNodes}
+              setNodes={handleNodesChange}
               selectedNode={selectedNode}
               setSelectedNode={setSelectedNode}
             />
