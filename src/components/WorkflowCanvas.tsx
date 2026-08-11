@@ -9,63 +9,83 @@ import ReactFlow, {
 } from 'reactflow';
 import type { Connection, Node } from 'reactflow';
 import { Handle, Position } from 'reactflow';
+import { X } from 'lucide-react';
 import 'reactflow/dist/style.css';
 
-// Custom Node Component with Handles
-const CustomNodeComponent = ({ data, selected }: any) => (
-  <div className={`
-    px-4 py-3 rounded-xl shadow-md border-2 transition-all duration-200 min-w-[140px] relative
-    ${selected 
-      ? 'border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/20' 
-      : 'border-gray-200 hover:border-blue-300 hover:shadow-lg'
-    }
-    ${data.bgColor || 'bg-white'}
-    cursor-grab active:cursor-grabbing
-    group
-  `}>
-    {/* Target Handle (Left side - input) */}
-    <Handle
-      type="target"
-      position={Position.Left}
-      className="w-3 h-3 bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
-      style={{ 
-        left: -6,
-        top: '50%',
-        transform: 'translateY(-50%)',
-      }}
-    />
-    
-    <div className="flex items-center gap-3">
-      {data.icon && (
-        <div className={`text-xl ${data.iconColor || 'text-gray-600'}`}>
-          {data.icon}
-        </div>
-      )}
-      <div>
-        <div className="font-semibold text-gray-800 text-sm">
-          {data.label || 'Node'}
-        </div>
-        {data.description && (
-          <div className="text-xs text-gray-500 mt-0.5">
-            {data.description}
+// Custom Node Component with Handles and Delete Button
+const CustomNodeComponent = ({ data, selected, id }: any) => {
+  // We'll use a custom delete function passed through data
+  const onDelete = data.onDelete;
+
+  return (
+    <div className={`
+      px-4 py-3 rounded-xl shadow-md border-2 transition-all duration-200 min-w-[140px] relative
+      ${selected 
+        ? 'border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/20' 
+        : 'border-gray-200 hover:border-blue-300 hover:shadow-lg'
+      }
+      ${data.bgColor || 'bg-white'}
+      cursor-grab active:cursor-grabbing
+      group
+    `}>
+      {/* Delete button - appears on hover */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onDelete) {
+            onDelete(id);
+          }
+        }}
+        className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:scale-110 transform transition-all"
+        title="Delete node"
+      >
+        <X size={14} />
+      </button>
+
+      {/* Target Handle (Left side - input) */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="w-3 h-3 bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
+        style={{ 
+          left: -6,
+          top: '50%',
+          transform: 'translateY(-50%)',
+        }}
+      />
+      
+      <div className="flex items-center gap-3">
+        {data.icon && (
+          <div className={`text-xl ${data.iconColor || 'text-gray-600'}`}>
+            {data.icon}
           </div>
         )}
+        <div>
+          <div className="font-semibold text-gray-800 text-sm">
+            {data.label || 'Node'}
+          </div>
+          {data.description && (
+            <div className="text-xs text-gray-500 mt-0.5">
+              {data.description}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
 
-    {/* Source Handle (Right side - output) */}
-    <Handle
-      type="source"
-      position={Position.Right}
-      className="w-3 h-3 bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
-      style={{ 
-        right: -6,
-        top: '50%',
-        transform: 'translateY(-50%)',
-      }}
-    />
-  </div>
-);
+      {/* Source Handle (Right side - output) */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="w-3 h-3 bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
+        style={{ 
+          right: -6,
+          top: '50%',
+          transform: 'translateY(-50%)',
+        }}
+      />
+    </div>
+  );
+};
 
 const nodeTypes = { 
   customNode: CustomNodeComponent,
@@ -81,7 +101,7 @@ interface WorkflowCanvasProps {
 export default function WorkflowCanvas({ 
   nodes: externalNodes = [], 
   setNodes: setExternalNodes,
-  selectedNode: _selectedNode, // Prefix with underscore to indicate it's intentionally unused
+  selectedNode,
   setSelectedNode 
 }: WorkflowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -97,9 +117,17 @@ export default function WorkflowCanvas({
       try {
         const parsedNodes = JSON.parse(savedNodes);
         if (parsedNodes.length > 0) {
-          setNodes(parsedNodes);
+          // Add delete function to each node's data
+          const nodesWithDelete = parsedNodes.map((node: Node) => ({
+            ...node,
+            data: {
+              ...node.data,
+              onDelete: handleDeleteNode,
+            }
+          }));
+          setNodes(nodesWithDelete);
           if (setExternalNodes) {
-            setExternalNodes(parsedNodes);
+            setExternalNodes(nodesWithDelete);
           }
         }
       } catch (error) {
@@ -112,8 +140,17 @@ export default function WorkflowCanvas({
   // Save nodes to localStorage whenever they change
   useEffect(() => {
     if (isInitialized && !isUpdatingRef.current) {
-      if (nodes.length > 0) {
-        localStorage.setItem('workflowNodes', JSON.stringify(nodes));
+      // Remove onDelete function before saving to localStorage
+      const nodesToSave = nodes.map((node) => {
+        const { onDelete, ...restData } = node.data;
+        return {
+          ...node,
+          data: restData,
+        };
+      });
+      
+      if (nodesToSave.length > 0) {
+        localStorage.setItem('workflowNodes', JSON.stringify(nodesToSave));
       } else {
         localStorage.removeItem('workflowNodes');
       }
@@ -131,13 +168,35 @@ export default function WorkflowCanvas({
       const externalNodesString = JSON.stringify(externalNodes);
       if (currentNodesString !== externalNodesString) {
         isUpdatingRef.current = true;
-        setNodes(externalNodes);
+        // Add delete function to external nodes
+        const nodesWithDelete = externalNodes.map((node: Node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            onDelete: handleDeleteNode,
+          }
+        }));
+        setNodes(nodesWithDelete);
         setTimeout(() => {
           isUpdatingRef.current = false;
         }, 0);
       }
     }
   }, [externalNodes, setNodes, isInitialized, nodes]);
+
+  // Delete node function
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    if (window.confirm('Are you sure you want to delete this node?')) {
+      setNodes((nds) => {
+        const updatedNodes = nds.filter((node) => node.id !== nodeId);
+        // Clear selection if the deleted node was selected
+        if (selectedNode?.id === nodeId && setSelectedNode) {
+          setSelectedNode(null);
+        }
+        return updatedNodes;
+      });
+    }
+  }, [setNodes, selectedNode, setSelectedNode]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
@@ -235,12 +294,13 @@ export default function WorkflowCanvas({
           icon: getIcon(type),
           bgColor: getColor(type),
           iconColor: getIconColor(type),
+          onDelete: handleDeleteNode, 
         },
       };
 
       setNodes((nds) => [...nds, newNode]);
     },
-    [setNodes]
+    [setNodes, handleDeleteNode]
   );
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -274,13 +334,19 @@ export default function WorkflowCanvas({
         nodesConnectable={true}
         onDrop={onDrop}
         onDragOver={onDragOver}
+        onSelectionChange={(params) => {
+          if (params.nodes.length > 0 && setSelectedNode) {
+            setSelectedNode(params.nodes[0]);
+          } else if (setSelectedNode) {
+            setSelectedNode(null);
+          }
+        }}
       >
         <Background 
           color="#d1d5db" 
           gap={24} 
           size={1}
           className="bg-gray-50"
-          // Remove variant prop or use a valid one
         />
         <Controls 
           className="bg-white border border-gray-200 rounded-lg shadow-lg"

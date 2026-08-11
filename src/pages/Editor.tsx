@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import type { Node } from 'reactflow';
 import Sidebar from '../components/Sidebar';
 import WorkflowCanvas from '../components/WorkflowCanvas';
@@ -20,14 +20,8 @@ export default function Editor() {
     if (nodes.length === 0) return;
     if (window.confirm('Are you sure you want to clear all nodes?')) {
       setNodes([]);
-      localStorage.removeItem('workflowNodes');
     }
   };
-
-  // Handle node updates from canvas
-  const handleNodesChange = useCallback((updatedNodes: Node[]) => {
-    setNodes(updatedNodes);
-  }, []);
 
   return (
     <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
@@ -110,7 +104,7 @@ export default function Editor() {
           <div className="w-full h-full">
             <WorkflowCanvas 
               nodes={nodes} 
-              setNodes={handleNodesChange}
+              setNodes={setNodes}
               selectedNode={selectedNode}
               setSelectedNode={setSelectedNode}
             />
