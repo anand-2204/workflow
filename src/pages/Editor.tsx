@@ -3,9 +3,10 @@ import type { Node } from 'reactflow';
 import Sidebar from '../components/Sidebar';
 import WorkflowCanvas from '../components/WorkflowCanvas';
 import { 
-  GitBranch, Trash2, Download, Upload, Undo2, Redo2,
-  Play, Save, X, Settings, PlayCircle, ZoomIn, ZoomOut
+  GitBranch, Trash2, Save, X, Settings, PlayCircle,
+  Download, Upload, Undo2, Redo2, ZoomIn, ZoomOut
 } from 'lucide-react';
+import { initEmailJS, sendEmail } from '../services/mailService';
 
 // Properties Panel Component
 const PropertiesPanel = ({ node, onUpdate, onClose }: { 
@@ -22,7 +23,21 @@ const PropertiesPanel = ({ node, onUpdate, onClose }: {
   }, [node]);
 
   const handleSave = () => {
+    console.log('💾 Saving node data:', localData);
     onUpdate(localData);
+    
+    if (node.type === 'email' || node.data?.type === 'email') {
+      const config = localData.config || {};
+      if (config.to && config.subject && config.message) {
+        alert('✅ Email configuration saved successfully!\n\n' +
+          `📧 To: ${config.to}\n` +
+          `📝 Subject: ${config.subject}\n` +
+          `📄 Message: ${config.message.substring(0, 50)}...`
+        );
+      } else {
+        alert('⚠️ Please fill in all required fields:\n- To (recipient email)\n- Subject\n- Message');
+      }
+    }
   };
 
   const renderNodeSpecificFields = () => {
@@ -56,20 +71,168 @@ const PropertiesPanel = ({ node, onUpdate, onClose }: {
       
       case 'email':
         return (
-          <div className="space-y-3 border-t border-gray-200 pt-4">
-            <h4 className="text-sm font-medium text-gray-700">Email Configuration</h4>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">To</label>
-              <input type="email" placeholder="recipient@example.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          <div className="space-y-4 border-t border-gray-200 pt-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-gray-700">📧 Email Configuration</h4>
+              {localData.config?.to && localData.config?.subject && localData.config?.message && (
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✅ Ready</span>
+              )}
             </div>
+            
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Subject</label>
-              <input type="text" placeholder="Email subject" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                To <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input 
+                  type="email" 
+                  placeholder="Enter recipient email (e.g., john@example.com)"
+                  value={localData.config?.to || ''}
+                  onChange={(e) => setLocalData({ 
+                    ...localData, 
+                    config: { 
+                      ...localData.config, 
+                      to: e.target.value 
+                    } 
+                  })}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                    localData.config?.to ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                  }`}
+                  placeholder="recipient@example.com"
+                />
+                {localData.config?.to && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500">✓</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                {localData.config?.to ? `📧 Sending to: ${localData.config.to}` : '⚠️ Required: Enter recipient email'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Subject <span className="text-red-500">*</span>
+              </label>
+              <input 
+                type="text" 
+                placeholder="Enter email subject"
+                value={localData.config?.subject || ''}
+                onChange={(e) => setLocalData({ 
+                  ...localData, 
+                  config: { 
+                    ...localData.config, 
+                    subject: e.target.value 
+                  } 
+                })}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                  localData.config?.subject ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                }`}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                {localData.config?.subject || '⚠️ Required: Enter email subject'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Message <span className="text-red-500">*</span>
+              </label>
+              <textarea 
+                placeholder="Enter your email message..."
+                value={localData.config?.message || ''}
+                onChange={(e) => setLocalData({ 
+                  ...localData, 
+                  config: { 
+                    ...localData.config, 
+                    message: e.target.value 
+                  } 
+                })}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                  localData.config?.message ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                }`}
+                rows={5}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                {localData.config?.message 
+                  ? `📄 ${localData.config.message.length} characters` 
+                  : '⚠️ Required: Enter your email message'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                From Name <span className="text-gray-400 text-xs">(Optional)</span>
+              </label>
+              <input 
+                type="text" 
+                placeholder="Your Name"
+                value={localData.config?.fromName || ''}
+                onChange={(e) => setLocalData({ 
+                  ...localData, 
+                  config: { 
+                    ...localData.config, 
+                    fromName: e.target.value 
+                  } 
+                })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              />
+              <p className="text-xs text-gray-400 mt-1">Leave empty to use "Workflow Editor"</p>
+            </div>
+
+            <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-xs font-medium text-gray-600">📋 Configuration Preview:</p>
+              <div className="mt-1 space-y-1">
+                <p className="text-xs text-gray-500">
+                  <span className="font-medium">To:</span> {localData.config?.to || '❌ Not set'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  <span className="font-medium">Subject:</span> {localData.config?.subject || '❌ Not set'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  <span className="font-medium">Message:</span> {localData.config?.message ? `${localData.config.message.substring(0, 30)}...` : '❌ Not set'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  <span className="font-medium">From:</span> {localData.config?.fromName || 'Workflow Editor (default)'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSave}
+              className="w-full mt-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
+            >
+              <Save size={16} />
+              Save Email Configuration
+            </button>
+          </div>
+        );
+
+      case 'whatsapp':
+        return (
+          <div className="space-y-3 border-t border-gray-200 pt-4">
+            <h4 className="text-sm font-medium text-gray-700">WhatsApp Configuration</h4>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Phone Number</label>
+              <input 
+                type="text" 
+                placeholder="+1234567890"
+                value={localData.config?.phoneNumber || ''}
+                onChange={(e) => setLocalData({ 
+                  ...localData, 
+                  config: { ...localData.config, phoneNumber: e.target.value } 
+                })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
+              />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Message</label>
               <textarea 
-                placeholder="Email body..."
+                placeholder="WhatsApp message..."
+                value={localData.config?.message || ''}
+                onChange={(e) => setLocalData({ 
+                  ...localData, 
+                  config: { ...localData.config, message: e.target.value } 
+                })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 rows={3}
               />
@@ -85,25 +248,6 @@ const PropertiesPanel = ({ node, onUpdate, onClose }: {
               <label className="block text-xs text-gray-500 mb-1">Query</label>
               <textarea 
                 placeholder="SELECT * FROM users WHERE id = ?"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                rows={3}
-              />
-            </div>
-          </div>
-        );
-      
-      case 'whatsapp':
-        return (
-          <div className="space-y-3 border-t border-gray-200 pt-4">
-            <h4 className="text-sm font-medium text-gray-700">WhatsApp Configuration</h4>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Phone Number</label>
-              <input type="text" placeholder="+1234567890" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Message</label>
-              <textarea 
-                placeholder="WhatsApp message..."
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 rows={3}
               />
@@ -206,12 +350,9 @@ export default function Editor() {
   const [showProperties, setShowProperties] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [zoom, setZoom] = useState(100);
+  const [emailStatus, setEmailStatus] = useState<{status: 'idle' | 'sending' | 'success' | 'error', message?: string}>({status: 'idle'});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<any>(null);
-
-  const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
-  const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
-  const handleZoomReset = () => setZoom(100);
 
   const clearCanvas = () => {
     if (nodes.length === 0) return;
@@ -228,14 +369,24 @@ export default function Editor() {
     }
   };
 
+  useEffect(() => {
+    try {
+      initEmailJS();
+      console.log('✅ EmailJS initialized successfully');
+    } catch (error) {
+      console.error('❌ EmailJS initialization failed:', error);
+    }
+  }, []);
+
   const handleUndoRedoChange = useCallback((undo: boolean, redo: boolean) => {
     setCanUndo(undo);
     setCanRedo(redo);
   }, []);
 
-  // Update node properties
   const updateNodeProperties = useCallback((newData: any) => {
     if (!selectedNode) return;
+    
+    console.log('🔄 Updating node properties:', newData);
     
     setNodes(prevNodes => 
       prevNodes.map(node => 
@@ -248,11 +399,119 @@ export default function Editor() {
     setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...newData } } : null);
   }, [selectedNode]);
 
-  // Close properties panel
   const closeProperties = useCallback(() => {
     setShowProperties(false);
     setSelectedNode(null);
   }, []);
+
+  // Execute node function - FIXED with better error handling
+  const executeNode = async (node: Node) => {
+    const nodeType = node.type || node.data?.type;
+    
+    // Skip Start and End nodes
+    if (nodeType === 'start' || nodeType === 'end' || node.data?.label === 'Start' || node.data?.label === 'End') {
+      console.log(`⏭️ Skipping ${node.data?.label || nodeType} node`);
+      return { success: true, skipped: true };
+    }
+
+    setNodes(prev => prev.map(n => 
+      n.id === node.id 
+        ? { ...n, data: { ...n.data, status: 'running' as const } }
+        : n
+    ));
+
+    try {
+      let result;
+      
+      switch (nodeType) {
+        case 'email': {
+          const config = node.data?.config || {};
+          const { to, subject, message, fromName } = config;
+          
+          console.log('📧 Email Node Config:', config);
+          
+          // Validate required fields
+          const missingFields = [];
+          if (!to) missingFields.push('To');
+          if (!subject) missingFields.push('Subject');
+          if (!message) missingFields.push('Message');
+          
+          if (missingFields.length > 0) {
+            const errorMsg = `Missing required fields: ${missingFields.join(', ')}. Please configure the email node.`;
+            setNodes(prev => prev.map(n => 
+              n.id === node.id 
+                ? { ...n, data: { ...n.data, status: 'error' as const, error: errorMsg } }
+                : n
+            ));
+            throw new Error(errorMsg);
+          }
+          
+          // Send email without confirmation dialog to avoid async issues
+          console.log('📤 Sending email with:', { to, subject, message: message.substring(0, 50) + '...' });
+          
+          result = await sendEmail(to, subject, message, fromName || 'Workflow Editor');
+          
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to send email');
+          }
+          
+          console.log('✅ Email sent successfully:', result);
+          break;
+        }
+        
+        case 'whatsapp': {
+          const { phoneNumber, message } = node.data.config || {};
+          if (!phoneNumber || !message) {
+            throw new Error('WhatsApp configuration incomplete');
+          }
+          const cleanNumber = phoneNumber.replace(/\D/g, '');
+          const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+          window.open(url, '_blank');
+          result = { success: true };
+          break;
+        }
+        
+        case 'http': {
+          const { url, method = 'GET' } = node.data.config || {};
+          if (!url) throw new Error('HTTP URL is required');
+          const response = await fetch(url, { method });
+          result = await response.json();
+          break;
+        }
+        
+        case 'database': {
+          const { query } = node.data.config || {};
+          console.log('Database query:', query);
+          result = { success: true, message: 'Query executed' };
+          break;
+        }
+        
+        default: {
+          // For any other node type, simulate execution
+          await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
+          const success = Math.random() < 0.9;
+          if (!success) throw new Error(`Node "${node.data.label}" failed`);
+          result = { success: true };
+        }
+      }
+
+      setNodes(prev => prev.map(n => 
+        n.id === node.id 
+          ? { ...n, data: { ...n.data, status: 'success' as const, result } }
+          : n
+      ));
+      
+      return result;
+    } catch (error: any) {
+      console.error('❌ Node execution error:', error);
+      setNodes(prev => prev.map(n => 
+        n.id === node.id 
+          ? { ...n, data: { ...n.data, status: 'error' as const, error: error.message } }
+          : n
+      ));
+      throw error;
+    }
+  };
 
   // Workflow execution engine
   const executeWorkflow = useCallback(async () => {
@@ -261,7 +520,7 @@ export default function Editor() {
       return;
     }
 
-    const startNode = nodes.find(n => n.type === 'start' || n.data.label === 'Start');
+    const startNode = nodes.find(n => n.type === 'start' || n.data?.label === 'Start');
     if (!startNode) {
       alert('No start node found! Add a Start node to begin.');
       return;
@@ -269,6 +528,7 @@ export default function Editor() {
 
     setIsExecuting(true);
 
+    // Reset all node statuses
     const resetNodes = nodes.map(node => ({
       ...node,
       data: {
@@ -278,50 +538,39 @@ export default function Editor() {
     }));
     setNodes(resetNodes);
 
-    const executeNode = async (node: Node) => {
-      setNodes(prev => prev.map(n => 
-        n.id === node.id 
-          ? { ...n, data: { ...n.data, status: 'running' as const } }
-          : n
-      ));
-
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
-
-      const success = Math.random() < 0.9;
-      
-      setNodes(prev => prev.map(n => 
-        n.id === node.id 
-          ? { ...n, data: { ...n.data, status: success ? 'success' as const : 'error' as const } }
-          : n
-      ));
-
-      if (!success) {
-        throw new Error(`Node "${node.data.label}" failed`);
-      }
-    };
-
     try {
-      for (const node of nodes) {
-        if (node.type !== 'start' && node.type !== 'end') {
-          await executeNode(node);
-        }
+      // Get executable nodes (skip Start and End)
+      const executableNodes = nodes.filter(node => {
+        const nodeType = node.type || node.data?.type;
+        return nodeType !== 'start' && nodeType !== 'end' && node.data?.label !== 'Start' && node.data?.label !== 'End';
+      });
+
+      console.log('🚀 Executing nodes:', executableNodes.map(n => n.data?.label || n.type));
+
+      // Execute nodes sequentially
+      for (const node of executableNodes) {
+        await executeNode(node);
       }
       
-      const endNode = nodes.find(n => n.type === 'end');
+      // Mark End node as success if it exists
+      const endNode = nodes.find(n => n.type === 'end' || n.data?.label === 'End');
       if (endNode) {
-        await executeNode(endNode);
+        setNodes(prev => prev.map(n => 
+          n.id === endNode.id 
+            ? { ...n, data: { ...n.data, status: 'success' as const } }
+            : n
+        ));
       }
       
       alert('✅ Workflow executed successfully!');
-    } catch (error) {
-      alert(`❌ Workflow failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } catch (error: any) {
+      alert(`❌ Workflow failed: ${error.message || 'Unknown error'}`);
       console.error('Workflow execution error:', error);
     } finally {
       setIsExecuting(false);
     }
-  }, [nodes, setNodes]);
+  }, [nodes]);
 
-  // Export workflow
   const exportWorkflow = useCallback(() => {
     const workflow = {
       version: '1.0',
@@ -348,7 +597,6 @@ export default function Editor() {
     URL.revokeObjectURL(url);
   }, [nodes]);
 
-  // Import workflow
   const importWorkflow = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -381,7 +629,6 @@ export default function Editor() {
     }
   }, [setNodes]);
 
-  // Handle undo
   const handleUndo = useCallback(() => {
     if (canvasRef.current) {
       canvasRef.current.undo();
@@ -391,7 +638,6 @@ export default function Editor() {
     }
   }, []);
 
-  // Handle redo
   const handleRedo = useCallback(() => {
     if (canvasRef.current) {
       canvasRef.current.redo();
@@ -401,7 +647,65 @@ export default function Editor() {
     }
   }, []);
 
-  // Keyboard shortcuts
+  const handleTestEmail = async () => {
+    const emailNode = nodes.find(n => n.type === 'email' || n.data?.type === 'email');
+    
+    if (!emailNode) {
+      setEmailStatus({ 
+        status: 'error', 
+        message: '❌ No email node found! Add an email node to the canvas first.' 
+      });
+      return;
+    }
+    
+    const config = emailNode.data?.config || {};
+    const { to, subject, fromName } = config;
+    
+    console.log('📧 Email node found:', emailNode);
+    console.log('📧 Email config:', config);
+    
+    if (!to) {
+      setEmailStatus({ 
+        status: 'error', 
+        message: '❌ Email node not configured! Click the email node and set the "To" field.' 
+      });
+      return;
+    }
+    
+    setEmailStatus({ status: 'sending', message: `📧 Sending test email to ${to}...` });
+    
+    try {
+      const result = await sendEmail(
+        to,
+        subject || 'Test Email from Workflow Editor',
+        'This is a test email to verify the email service is working correctly. 🚀\n\n' +
+        '📋 Your email node configuration:\n' +
+        `• To: ${to}\n` +
+        `• Subject: ${subject || 'Test Email'}\n` +
+        `• From: ${fromName || 'Workflow Editor'}`,
+        fromName || 'Workflow Editor'
+      );
+      
+      if (result.success) {
+        setEmailStatus({ 
+          status: 'success', 
+          message: `✅ Test email sent successfully to ${to}! Check your inbox.` 
+        });
+        setTimeout(() => setEmailStatus({ status: 'idle' }), 5000);
+      } else {
+        setEmailStatus({ 
+          status: 'error', 
+          message: `❌ Failed: ${result.error}` 
+        });
+      }
+    } catch (error: any) {
+      setEmailStatus({ 
+        status: 'error', 
+        message: `❌ Error: ${error.message}` 
+      });
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -426,6 +730,10 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo, showProperties, closeProperties]);
 
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
+  const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
+  const handleZoomReset = () => setZoom(100);
+
   return (
     <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
       {/* Sidebar */}
@@ -440,7 +748,13 @@ export default function Editor() {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-          
+          <button 
+            onClick={clearCanvas}
+            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+            title="Clear canvas"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
         <Sidebar />
       </aside>
@@ -459,21 +773,28 @@ export default function Editor() {
           </div>
           
           <div className="ml-auto flex items-center gap-1.5">
-            {/* Run Button */}
-            <button 
-              onClick={executeWorkflow}
-              disabled={nodes.length === 0 || isExecuting}
-              className={`px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30 disabled:opacity-50 disabled:cursor-not-allowed ${
-                isExecuting ? 'animate-pulse' : ''
+            <button
+              onClick={handleTestEmail}
+              disabled={emailStatus.status === 'sending'}
+              className={`px-3 py-1.5 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                emailStatus.status === 'sending' 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-purple-600 hover:bg-purple-700'
               }`}
+              title="Send test email to configured email node"
             >
-              <PlayCircle size={14} className={isExecuting ? 'animate-spin' : ''} />
-              {isExecuting ? 'Running...' : 'Run'}
+              {emailStatus.status === 'sending' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  Sending...
+                </>
+              ) : (
+                '📧 Test Email'
+              )}
             </button>
 
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
-            {/* Undo/Redo Buttons */}
             <button 
               onClick={handleUndo}
               disabled={!canUndo}
@@ -490,10 +811,32 @@ export default function Editor() {
             >
               <Redo2 size={16} />
             </button>
-            
-           
-            
-            {/* Export/Import Buttons */}
+
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
+            <button 
+              onClick={handleZoomOut}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+              title="Zoom Out"
+            >
+              <ZoomOut size={16} />
+            </button>
+            <button 
+              onClick={handleZoomReset}
+              className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors min-w-[40px]"
+            >
+              {zoom}%
+            </button>
+            <button 
+              onClick={handleZoomIn}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+              title="Zoom In"
+            >
+              <ZoomIn size={16} />
+            </button>
+
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
             <button 
               onClick={exportWorkflow}
               disabled={nodes.length === 0}
@@ -518,11 +861,35 @@ export default function Editor() {
               onChange={importWorkflow}
               className="hidden"
             />
+
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
+            <button 
+              onClick={executeWorkflow}
+              disabled={nodes.length === 0 || isExecuting}
+              className={`px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isExecuting ? 'animate-pulse' : ''
+              }`}
+            >
+              <PlayCircle size={14} className={isExecuting ? 'animate-spin' : ''} />
+              {isExecuting ? 'Running...' : 'Run'}
+            </button>
           </div>
         </header>
 
+        {emailStatus.status !== 'idle' && (
+          <div className={`px-6 py-2 text-sm ${
+            emailStatus.status === 'sending' ? 'bg-yellow-50 text-yellow-700 animate-pulse' : ''
+          } ${
+            emailStatus.status === 'success' ? 'bg-green-50 text-green-700' : ''
+          } ${
+            emailStatus.status === 'error' ? 'bg-red-50 text-red-700' : ''
+          }`}>
+            {emailStatus.message}
+          </div>
+        )}
+
         <div className="flex-1 flex overflow-hidden">
-          {/* Canvas */}
           <div className="flex-1 relative overflow-hidden">
             <WorkflowCanvas 
               ref={canvasRef}
@@ -537,7 +904,6 @@ export default function Editor() {
             />
           </div>
 
-          {/* Properties Panel */}
           {showProperties && selectedNode && (
             <PropertiesPanel 
               node={selectedNode}
