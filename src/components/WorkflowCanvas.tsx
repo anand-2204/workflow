@@ -155,7 +155,6 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   setSelectedNode,
   onUndoRedoChange
 }, ref) => {
-  // Use externalNodes directly instead of internal state
   const [nodes, setNodes, onNodesChange] = useNodesState(externalNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -180,7 +179,6 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
             if (selectedNode?.id === nodeId && setSelectedNode) {
               setSelectedNode(null);
             }
-            // Update external
             if (setExternalNodes) {
               setExternalNodes(updatedNodes);
             }
@@ -196,9 +194,9 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       const nodesWithDelete = addDeleteFunction(externalNodes);
       setNodes(nodesWithDelete);
     }
-  }, []);
+  }, [externalNodes, addDeleteFunction, setNodes]);
 
-  // Save nodes to localStorage whenever they change
+  // Save nodes to localStorage
   useEffect(() => {
     if (nodes.length > 0) {
       const nodesToSave = nodes.map((node) => {
@@ -214,7 +212,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     }
   }, [nodes]);
 
-  // Update undo/redo state and notify parent
+  // Update undo/redo state
   const updateUndoRedoState = useCallback(() => {
     const undo = historyIndex > 0;
     const redo = historyIndex < history.length - 1;
@@ -330,8 +328,11 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       
       if (!sourceNode || !targetNode) return false;
       
-      if (sourceNode.type === 'end' || sourceNode.data?.label === 'End') return false;
-      if (targetNode.type === 'start' || targetNode.data?.label === 'Start') return false;
+      const sourceType = sourceNode.data?.type || sourceNode.type;
+      const targetType = targetNode.data?.type || targetNode.type;
+      
+      if (sourceType === 'end' || sourceType === 'end') return false;
+      if (targetType === 'start' || targetType === 'start') return false;
       
       const hasOutgoingConnection = edges.some(
         e => e.source === connection.source && e.sourceHandle === connection.sourceHandle
@@ -352,8 +353,6 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     (params: Connection) => {
       if (isValidConnection(params)) {
         setEdges((eds) => addEdge({ ...params, animated: true }, eds));
-      } else {
-        console.warn('Invalid connection attempt:', params);
       }
     },
     [setEdges, isValidConnection]
@@ -384,11 +383,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       
       const type = event.dataTransfer.getData('application/reactflow');
       
-      if (!type) {
-        return;
-      }
-
-      if (!reactFlowWrapper.current) {
+      if (!type || !reactFlowWrapper.current) {
         return;
       }
 
@@ -405,12 +400,13 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         const icons: Record<string, string> = {
           start: '▶️',
           http: '🌐',
-          email: '✉️',
+          email: '📧',
           end: '⏹️',
           webhook: '⚡',
           database: '🗄️',
-          function: '💻',
+          function: '⚙️',
           schedule: '⏰',
+          message: '💬',
           whatsapp: '💬',
         };
         return icons[type] || '📦';
@@ -426,6 +422,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           database: 'bg-cyan-50 border-cyan-300',
           function: 'bg-violet-50 border-violet-300',
           schedule: 'bg-indigo-50 border-indigo-300',
+          message: 'bg-green-50 border-green-300',
           whatsapp: 'bg-green-50 border-green-300',
         };
         return colors[type] || 'bg-gray-50 border-gray-300';
@@ -441,6 +438,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           database: 'text-cyan-600',
           function: 'text-violet-600',
           schedule: 'text-indigo-600',
+          message: 'text-green-600',
           whatsapp: 'text-green-600',
         };
         return colors[type] || 'text-gray-600';
@@ -452,15 +450,16 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         position,
         data: { 
           label: label,
+          type: type,
           description: `New ${type} node`,
           icon: getIcon(type),
           bgColor: getColor(type),
           iconColor: getIconColor(type),
           status: 'idle',
+          config: {},
         },
       };
 
-      // Add delete function to new node
       const nodeWithDelete = {
         ...newNode,
         data: {
@@ -494,6 +493,12 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  const onPaneClick = useCallback(() => {
+    if (setSelectedNode) {
+      setSelectedNode(null);
+    }
+  }, [setSelectedNode]);
+
   return (
     <div 
       ref={reactFlowWrapper}
@@ -508,6 +513,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         onConnect={onConnect}
         onNodeClick={onNodeClick}
         onNodeDragStop={onNodeDragStop}
+        onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
         className="bg-gray-50"
@@ -521,13 +527,6 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         onDrop={onDrop}
         onDragOver={onDragOver}
         isValidConnection={isValidConnection}
-        onSelectionChange={(params) => {
-          if (params.nodes.length > 0 && setSelectedNode) {
-            setSelectedNode(params.nodes[0]);
-          } else if (setSelectedNode) {
-            setSelectedNode(null);
-          }
-        }}
       >
         <Background 
           color="#d1d5db" 
