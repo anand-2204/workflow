@@ -9,24 +9,73 @@ import ReactFlow, {
 } from 'reactflow';
 import type { Connection, Node } from 'reactflow';
 import { Handle, Position } from 'reactflow';
-import { X } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import 'reactflow/dist/style.css';
 
-// Custom Node Component with Handles and Delete Button
+// Custom Node Component with Handles, Delete Button, and Status
 const CustomNodeComponent = ({ data, selected, id }: any) => {
   const onDelete = data.onDelete;
+  const status = data.status || 'idle';
+
+  const getStatusStyles = () => {
+    switch (status) {
+      case 'running':
+        return 'border-yellow-500 shadow-lg shadow-yellow-500/20';
+      case 'success':
+        return 'border-green-500 shadow-lg shadow-green-500/20';
+      case 'error':
+        return 'border-red-500 shadow-lg shadow-red-500/20';
+      default:
+        return selected 
+          ? 'border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/20' 
+          : 'border-gray-200 hover:border-blue-300 hover:shadow-lg';
+    }
+  };
+
+  const getStatusIndicator = () => {
+    switch (status) {
+      case 'running':
+        return <Loader2 size={14} className="text-yellow-500 animate-spin" />;
+      case 'success':
+        return <CheckCircle size={14} className="text-green-500" />;
+      case 'error':
+        return <AlertCircle size={14} className="text-red-500" />;
+      default:
+        return null;
+    }
+  };
+
+  const getStatusText = () => {
+    switch (status) {
+      case 'running':
+        return <span className="text-[10px] text-yellow-600 animate-pulse">Running...</span>;
+      case 'success':
+        return <span className="text-[10px] text-green-600">✓ Done</span>;
+      case 'error':
+        return <span className="text-[10px] text-red-600">✗ Failed</span>;
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className={`
       px-4 py-3 rounded-xl shadow-md border-2 transition-all duration-200 min-w-[140px] relative
-      ${selected 
-        ? 'border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/20' 
-        : 'border-gray-200 hover:border-blue-300 hover:shadow-lg'
-      }
+      ${getStatusStyles()}
+      ${status === 'running' ? 'animate-pulse' : ''}
       ${data.bgColor || 'bg-white'}
       cursor-grab active:cursor-grabbing
       group
     `}>
+      {status !== 'idle' && (
+        <div className={`
+          absolute -top-1 -right-1 w-3 h-3 rounded-full
+          ${status === 'running' ? 'bg-yellow-500 animate-ping' : ''}
+          ${status === 'success' ? 'bg-green-500' : ''}
+          ${status === 'error' ? 'bg-red-500 animate-pulse' : ''}
+        `} />
+      )}
+
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -34,7 +83,7 @@ const CustomNodeComponent = ({ data, selected, id }: any) => {
             onDelete(id);
           }
         }}
-        className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:scale-110 transform transition-all"
+        className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:scale-110 transform transition-all z-10"
         title="Delete node"
       >
         <X size={14} />
@@ -53,17 +102,21 @@ const CustomNodeComponent = ({ data, selected, id }: any) => {
       
       <div className="flex items-center gap-3">
         {data.icon && (
-          <div className={`text-xl ${data.iconColor || 'text-gray-600'}`}>
+          <div className={`text-xl ${data.iconColor || 'text-gray-600'} ${status === 'running' ? 'animate-bounce' : ''}`}>
             {data.icon}
           </div>
         )}
-        <div>
-          <div className="font-semibold text-gray-800 text-sm">
-            {data.label || 'Node'}
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <div className="font-semibold text-gray-800 text-sm">
+              {data.label || 'Node'}
+            </div>
+            {getStatusIndicator()}
           </div>
           {data.description && (
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
               {data.description}
+              {getStatusText()}
             </div>
           )}
         </div>
@@ -102,13 +155,11 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   setSelectedNode,
   onUndoRedoChange
 }, ref) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  // Use externalNodes directly instead of internal state
+  const [nodes, setNodes, onNodesChange] = useNodesState(externalNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const isUpdatingRef = useRef(false);
-  const isUndoRedoRef = useRef(false);
-  const isDeletingRef = useRef(false);
+  const isInternalUpdate = useRef(false);
 
   // Undo/Redo state
   const [history, setHistory] = useState<{ nodes: Node[]; edges: any[] }[]>([]);
@@ -116,55 +167,52 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  // Delete node function - Fixed to prevent render loops
-  const handleDeleteNode = useCallback((nodeId: string) => {
-    if (isDeletingRef.current) return;
-    if (!window.confirm('Are you sure you want to delete this node?')) return;
-    
-    isDeletingRef.current = true;
-    
-    setNodes((nds) => {
-      const updatedNodes = nds.filter((node) => node.id !== nodeId);
-      // Clear selection if the deleted node was selected
-      if (selectedNode?.id === nodeId && setSelectedNode) {
-        setSelectedNode(null);
-      }
-      return updatedNodes;
-    });
-    
-    // Reset the deleting flag after a short delay
-    setTimeout(() => {
-      isDeletingRef.current = false;
-    }, 100);
-  }, [selectedNode, setSelectedNode]);
-
-  // Load saved nodes from localStorage on mount
-  useEffect(() => {
-    const savedNodes = localStorage.getItem('workflowNodes');
-    if (savedNodes) {
-      try {
-        const parsedNodes = JSON.parse(savedNodes);
-        if (parsedNodes.length > 0) {
-          const nodesWithDelete = parsedNodes.map((node: Node) => ({
-            ...node,
-            data: {
-              ...node.data,
-              onDelete: handleDeleteNode,
+  // Add delete function to nodes
+  const addDeleteFunction = useCallback((nodesList: Node[]) => {
+    return nodesList.map((node: Node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        onDelete: (nodeId: string) => {
+          if (window.confirm('Are you sure you want to delete this node?')) {
+            const updatedNodes = nodesList.filter((n) => n.id !== nodeId);
+            setNodes(updatedNodes);
+            if (selectedNode?.id === nodeId && setSelectedNode) {
+              setSelectedNode(null);
             }
-          }));
-          setNodes(nodesWithDelete);
-          if (setExternalNodes) {
-            setExternalNodes(nodesWithDelete);
+            // Update external
+            if (setExternalNodes) {
+              setExternalNodes(updatedNodes);
+            }
           }
-          setHistory([{ nodes: nodesWithDelete, edges: [] }]);
-          setHistoryIndex(0);
-        }
-      } catch (error) {
-        console.error('Error loading saved nodes:', error);
+        },
       }
+    }));
+  }, [setNodes, setExternalNodes, selectedNode, setSelectedNode]);
+
+  // Initialize nodes with delete function
+  useEffect(() => {
+    if (externalNodes.length > 0) {
+      const nodesWithDelete = addDeleteFunction(externalNodes);
+      setNodes(nodesWithDelete);
     }
-    setIsInitialized(true);
-  }, []); // Remove handleDeleteNode dependency to prevent re-run
+  }, []);
+
+  // Save nodes to localStorage whenever they change
+  useEffect(() => {
+    if (nodes.length > 0) {
+      const nodesToSave = nodes.map((node) => {
+        const { onDelete, status, ...restData } = node.data;
+        return {
+          ...node,
+          data: restData,
+        };
+      });
+      localStorage.setItem('workflowNodes', JSON.stringify(nodesToSave));
+    } else {
+      localStorage.removeItem('workflowNodes');
+    }
+  }, [nodes]);
 
   // Update undo/redo state and notify parent
   const updateUndoRedoState = useCallback(() => {
@@ -177,14 +225,13 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     }
   }, [historyIndex, history.length, onUndoRedoChange]);
 
-  // Notify parent when undo/redo state changes
   useEffect(() => {
     updateUndoRedoState();
   }, [historyIndex, history.length, updateUndoRedoState]);
 
   // Save state to history
   const saveStateToHistory = useCallback(() => {
-    if (isUndoRedoRef.current || !isInitialized || isDeletingRef.current) return;
+    if (isInternalUpdate.current) return;
     
     const newState = { 
       nodes: JSON.parse(JSON.stringify(nodes)), 
@@ -200,19 +247,16 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       return newHistory;
     });
     setHistoryIndex(prev => Math.min(prev + 1, 49));
-  }, [nodes, edges, historyIndex, isInitialized]);
+  }, [nodes, edges, historyIndex]);
 
-  // Save state on changes - Only when not deleting
   useEffect(() => {
-    if (!isUndoRedoRef.current && !isDeletingRef.current && isInitialized) {
-      saveStateToHistory();
-    }
-  }, [nodes, edges, isInitialized, saveStateToHistory]);
+    saveStateToHistory();
+  }, [nodes, edges, saveStateToHistory]);
 
   // Undo function
   const undo = useCallback(() => {
     if (historyIndex > 0) {
-      isUndoRedoRef.current = true;
+      isInternalUpdate.current = true;
       const prevState = history[historyIndex - 1];
       setNodes(prevState.nodes);
       setEdges(prevState.edges);
@@ -223,7 +267,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       }
       
       setTimeout(() => {
-        isUndoRedoRef.current = false;
+        isInternalUpdate.current = false;
       }, 100);
       return true;
     }
@@ -233,7 +277,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   // Redo function
   const redo = useCallback(() => {
     if (historyIndex < history.length - 1) {
-      isUndoRedoRef.current = true;
+      isInternalUpdate.current = true;
       const nextState = history[historyIndex + 1];
       setNodes(nextState.nodes);
       setEdges(nextState.edges);
@@ -244,7 +288,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       }
       
       setTimeout(() => {
-        isUndoRedoRef.current = false;
+        isInternalUpdate.current = false;
       }, 100);
       return true;
     }
@@ -258,58 +302,61 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     getState: () => ({
       canUndo: historyIndex > 0,
       canRedo: historyIndex < history.length - 1,
-    })
-  }), [undo, redo, historyIndex, history.length]);
-
-  // Save nodes to localStorage whenever they change
-  useEffect(() => {
-    if (isInitialized && !isUpdatingRef.current && !isDeletingRef.current) {
-      const nodesToSave = nodes.map((node) => {
-        const { onDelete, ...restData } = node.data;
-        return {
-          ...node,
-          data: restData,
-        };
-      });
-      
-      if (nodesToSave.length > 0) {
-        localStorage.setItem('workflowNodes', JSON.stringify(nodesToSave));
-      } else {
-        localStorage.removeItem('workflowNodes');
-      }
+    }),
+    clearCanvas: () => {
+      setNodes([]);
+      setEdges([]);
+      setHistory([]);
+      setHistoryIndex(-1);
+      setCanUndo(false);
+      setCanRedo(false);
+      localStorage.removeItem('workflowNodes');
       if (setExternalNodes) {
-        setExternalNodes(nodes);
+        setExternalNodes([]);
+      }
+      if (setSelectedNode) {
+        setSelectedNode(null);
       }
     }
-  }, [nodes, setExternalNodes, isInitialized]);
+  }), [undo, redo, historyIndex, history.length, setNodes, setEdges, setExternalNodes, setSelectedNode]);
 
-  // Handle external nodes updates
-  useEffect(() => {
-    if (isInitialized && externalNodes.length > 0 && !isDeletingRef.current) {
-      const currentNodesString = JSON.stringify(nodes);
-      const externalNodesString = JSON.stringify(externalNodes);
-      if (currentNodesString !== externalNodesString) {
-        isUpdatingRef.current = true;
-        const nodesWithDelete = externalNodes.map((node: Node) => ({
-          ...node,
-          data: {
-            ...node.data,
-            onDelete: handleDeleteNode,
-          }
-        }));
-        setNodes(nodesWithDelete);
-        setTimeout(() => {
-          isUpdatingRef.current = false;
-        }, 0);
-      }
-    }
-  }, [externalNodes, setNodes, isInitialized, nodes, handleDeleteNode]);
+  // Connection validation
+  const isValidConnection = useCallback(
+    (connection: Connection) => {
+      if (connection.source === connection.target) return false;
+      
+      const sourceNode = nodes.find(n => n.id === connection.source);
+      const targetNode = nodes.find(n => n.id === connection.target);
+      
+      if (!sourceNode || !targetNode) return false;
+      
+      if (sourceNode.type === 'end' || sourceNode.data?.label === 'End') return false;
+      if (targetNode.type === 'start' || targetNode.data?.label === 'Start') return false;
+      
+      const hasOutgoingConnection = edges.some(
+        e => e.source === connection.source && e.sourceHandle === connection.sourceHandle
+      );
+      if (hasOutgoingConnection) return false;
+      
+      const hasIncomingConnection = edges.some(
+        e => e.target === connection.target && e.targetHandle === connection.targetHandle
+      );
+      if (hasIncomingConnection) return false;
+      
+      return true;
+    },
+    [nodes, edges]
+  );
 
   const onConnect = useCallback(
     (params: Connection) => {
-      setEdges((eds) => addEdge({ ...params, animated: true }, eds));
+      if (isValidConnection(params)) {
+        setEdges((eds) => addEdge({ ...params, animated: true }, eds));
+      } else {
+        console.warn('Invalid connection attempt:', params);
+      }
     },
-    [setEdges]
+    [setEdges, isValidConnection]
   );
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
@@ -324,8 +371,11 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         n.id === node.id ? { ...n, position: node.position } : n
       );
       setNodes(updatedNodes);
+      if (setExternalNodes) {
+        setExternalNodes(updatedNodes);
+      }
     },
-    [nodes, setNodes]
+    [nodes, setNodes, setExternalNodes]
   );
 
   const onDrop = useCallback(
@@ -361,6 +411,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           database: '🗄️',
           function: '💻',
           schedule: '⏰',
+          whatsapp: '💬',
         };
         return icons[type] || '📦';
       };
@@ -375,6 +426,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           database: 'bg-cyan-50 border-cyan-300',
           function: 'bg-violet-50 border-violet-300',
           schedule: 'bg-indigo-50 border-indigo-300',
+          whatsapp: 'bg-green-50 border-green-300',
         };
         return colors[type] || 'bg-gray-50 border-gray-300';
       };
@@ -389,6 +441,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           database: 'text-cyan-600',
           function: 'text-violet-600',
           schedule: 'text-indigo-600',
+          whatsapp: 'text-green-600',
         };
         return colors[type] || 'text-gray-600';
       };
@@ -403,13 +456,37 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           icon: getIcon(type),
           bgColor: getColor(type),
           iconColor: getIconColor(type),
-          onDelete: handleDeleteNode,
+          status: 'idle',
         },
       };
 
-      setNodes((nds) => [...nds, newNode]);
+      // Add delete function to new node
+      const nodeWithDelete = {
+        ...newNode,
+        data: {
+          ...newNode.data,
+          onDelete: (nodeId: string) => {
+            if (window.confirm('Are you sure you want to delete this node?')) {
+              const updatedNodes = nodes.filter((n) => n.id !== nodeId);
+              setNodes(updatedNodes);
+              if (selectedNode?.id === nodeId && setSelectedNode) {
+                setSelectedNode(null);
+              }
+              if (setExternalNodes) {
+                setExternalNodes(updatedNodes);
+              }
+            }
+          },
+        }
+      };
+
+      const updatedNodes = [...nodes, nodeWithDelete];
+      setNodes(updatedNodes);
+      if (setExternalNodes) {
+        setExternalNodes(updatedNodes);
+      }
     },
-    [setNodes, handleDeleteNode]
+    [nodes, setNodes, setExternalNodes, selectedNode, setSelectedNode]
   );
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -443,6 +520,7 @@ const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         nodesConnectable={true}
         onDrop={onDrop}
         onDragOver={onDragOver}
+        isValidConnection={isValidConnection}
         onSelectionChange={(params) => {
           if (params.nodes.length > 0 && setSelectedNode) {
             setSelectedNode(params.nodes[0]);
