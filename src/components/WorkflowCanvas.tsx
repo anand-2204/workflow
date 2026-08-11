@@ -6,7 +6,6 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
-  ReactFlowProvider
 } from 'reactflow';
 import type { Connection, Node } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -40,16 +39,11 @@ const CustomNodeComponent = ({ data, selected }: any) => (
         )}
       </div>
     </div>
-    {/* Drag handle indicator */}
-    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-      <div className="w-1 h-6 bg-gray-300 rounded-full" />
-    </div>
   </div>
 );
 
 const nodeTypes = { 
   customNode: CustomNodeComponent,
-  default: CustomNodeComponent,
 };
 
 interface WorkflowCanvasProps {
@@ -68,7 +62,6 @@ export default function WorkflowCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState(externalNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
 
   // Sync external nodes with internal state
   useEffect(() => {
@@ -77,9 +70,9 @@ export default function WorkflowCanvas({
     }
   }, [externalNodes, setNodes]);
 
-  // Also sync when nodes change internally
+  // Sync internal nodes to external
   useEffect(() => {
-    if (setExternalNodes && nodes.length > 0) {
+    if (setExternalNodes) {
       setExternalNodes(nodes);
     }
   }, [nodes, setExternalNodes]);
@@ -98,7 +91,7 @@ export default function WorkflowCanvas({
   const onNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
     if (setExternalNodes) {
       const updatedNodes = nodes.map(n => 
-        n.id === node.id ? node : n
+        n.id === node.id ? { ...n, position: node.position } : n
       );
       setExternalNodes(updatedNodes);
     }
@@ -108,34 +101,25 @@ export default function WorkflowCanvas({
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      event.stopPropagation();
-      
-      console.log('Drop event triggered on canvas');
       
       // Get the node type from the drag data
       const type = event.dataTransfer.getData('application/reactflow');
-      console.log('Node type from drag:', type);
       
       if (!type) {
-        console.log('No node type found - check drag data');
         return;
       }
 
       // Get the drop position
       if (!reactFlowWrapper.current) {
-        console.log('No wrapper ref found');
         return;
       }
 
       const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
       
-      // Calculate position relative to the React Flow container
       const position = {
         x: event.clientX - reactFlowBounds.left - 75,
         y: event.clientY - reactFlowBounds.top - 40,
       };
-
-      console.log('Drop position:', position);
 
       // Create node label from type
       const label = type.charAt(0).toUpperCase() + type.slice(1);
@@ -197,47 +181,21 @@ export default function WorkflowCanvas({
         },
       };
 
-      console.log('Creating new node:', newNode);
-
       // Update internal state
-      setNodes((nds) => {
-        const updated = [...nds, newNode];
-        console.log('Updated nodes count:', updated.length);
-        return updated;
-      });
-      
-      // Update external state
-      if (setExternalNodes) {
-        const updatedNodes = [...nodes, newNode];
-        setExternalNodes(updatedNodes);
-      }
-
-      // Reset drag over state
-      setIsDragOver(false);
+      setNodes((nds) => [...nds, newNode]);
     },
-    [setNodes, nodes, setExternalNodes]
+    [setNodes]
   );
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-    event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
-    setIsDragOver(true);
-  }, []);
-
-  const onDragLeave = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragOver(false);
   }, []);
 
   return (
     <div 
       ref={reactFlowWrapper}
-      className={`w-full h-full relative ${isDragOver ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
-      onDrop={onDrop}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
+      className="w-full h-full relative"
       style={{ background: 'transparent' }}
     >
       <ReactFlow
@@ -256,22 +214,23 @@ export default function WorkflowCanvas({
         snapToGrid={true}
         snapGrid={[15, 15]}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        nodesDraggable={true}
+        nodesConnectable={true}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
       >
         <Background 
           color="#d1d5db" 
           gap={24} 
           size={1}
           className="bg-gray-50"
+          variant="dots"
         />
         <Controls 
           className="bg-white border border-gray-200 rounded-lg shadow-lg"
           showInteractive={false}
           position="bottom-right"
         />
-       
-        
-        
-
        
       </ReactFlow>
     </div>

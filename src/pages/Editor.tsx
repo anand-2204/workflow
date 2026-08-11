@@ -36,7 +36,13 @@ export default function Editor() {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-          
+          <button 
+            onClick={clearCanvas}
+            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+            title="Clear canvas"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
         <Sidebar />
       </aside>
@@ -55,12 +61,26 @@ export default function Editor() {
           </div>
           
           <div className="ml-auto flex items-center gap-1.5">
-            {/* Undo/Redo */}
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700">
-              <Undo2 size={16} />
+            {/* Zoom Controls */}
+            <button 
+              onClick={handleZoomOut}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+              title="Zoom Out"
+            >
+              <ZoomOut size={16} />
             </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700">
-              <Redo2 size={16} />
+            <button 
+              onClick={handleZoomReset}
+              className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors min-w-[40px]"
+            >
+              {zoom}%
+            </button>
+            <button 
+              onClick={handleZoomIn}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+              title="Zoom In"
+            >
+              <ZoomIn size={16} />
             </button>
             
             <div className="w-px h-6 bg-gray-200 mx-1" />
@@ -75,12 +95,9 @@ export default function Editor() {
               <Play size={14} />
               Run
             </button>
-            
-            
           </div>
         </header>
 
-        
         <div className="flex-1 relative overflow-hidden">
           {/* Canvas */}
           <div className="w-full h-full">
@@ -91,11 +108,6 @@ export default function Editor() {
               setSelectedNode={setSelectedNode}
             />
           </div>
-
-
-         
-
-        
         </div>
       </main>
     </div>
