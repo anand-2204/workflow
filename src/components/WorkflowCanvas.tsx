@@ -81,7 +81,7 @@ interface WorkflowCanvasProps {
 export default function WorkflowCanvas({ 
   nodes: externalNodes = [], 
   setNodes: setExternalNodes,
-  selectedNode,
+  selectedNode: _selectedNode, // Prefix with underscore to indicate it's intentionally unused
   setSelectedNode 
 }: WorkflowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -280,7 +280,7 @@ export default function WorkflowCanvas({
           gap={24} 
           size={1}
           className="bg-gray-50"
-          variant="dots"
+          // Remove variant prop or use a valid one
         />
         <Controls 
           className="bg-white border border-gray-200 rounded-lg shadow-lg"
