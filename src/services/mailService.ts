@@ -1,99 +1,74 @@
-// src/services/emailService.ts
 import emailjs from '@emailjs/browser';
 
-// EmailJS Configuration
-const EMAILJS_CONFIG = {
-  PUBLIC_KEY: import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'uoLYWA_RX6OzN3C1u',
-  SERVICE_ID: import.meta.env.VITE_EMAILJS_SERVICE_ID || 'service_teclyx8',
-  TEMPLATE_ID: import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'template_aqbu41b',
-};
-
-// Initialize EmailJS with public key
+// Initialize EmailJS with public key from environment variables
 export const initEmailJS = () => {
-  console.log('Initializing EmailJS with public key:', EMAILJS_CONFIG.PUBLIC_KEY);
-  emailjs.init({
-    publicKey: EMAILJS_CONFIG.PUBLIC_KEY,
-    // blockHeadless: true, // Optional: prevents headless browsers
-  });
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+  if (publicKey) {
+    emailjs.init(publicKey);
+  }
 };
 
-// Send email function
+// Send email using EmailJS
 export const sendEmail = async (
   to: string,
   subject: string,
   message: string,
-  fromName?: string
+  fromName: string = 'Workflow Editor'
 ) => {
   try {
-    // Ensure EmailJS is initialized before sending
-    if (!emailjs) {
-      console.error('EmailJS not initialized');
-      return { 
-        success: false, 
-        error: 'Email service not initialized' 
+    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+
+    if (!serviceId || !templateId) {
+      return {
+        success: false,
+        error: 'EmailJS configuration missing. Please check your environment variables.',
       };
     }
 
-    console.log('Sending email with params:', {
-      to,
-      subject,
-      message,
-      fromName
-    });
-
-    const templateParams = {
-      to_email: to,
-      to_name: to.split('@')[0],
-      subject: subject,
-      message: message,
-      from_name: fromName || 'Workflow Editor',
-      // Add these if your template uses them
-      reply_to: 'noreply@workflow.com',
-    };
-
-    console.log('Template params:', templateParams);
-
-    const response = await emailjs.send(
-      EMAILJS_CONFIG.SERVICE_ID,
-      EMAILJS_CONFIG.TEMPLATE_ID,
-      templateParams
+    const result = await emailjs.send(
+      serviceId,
+      templateId,
+      {
+        to_email: to,
+        subject: subject,
+        message: message,
+        from_name: fromName,
+      }
     );
-
-    console.log('Email sent successfully:', response);
-    return { 
-      success: true, 
-      data: response,
-      messageId: response?.text || 'Email sent successfully'
+    
+    return {
+      success: true,
+      data: result,
     };
-  } catch (error: any) {
-    console.error('Email sending failed:', error);
-    return { 
-      success: false, 
-      error: error?.text || error?.message || 'Failed to send email'
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send email',
     };
   }
 };
 
-// Test email function with better error handling
-export const testEmailService = async () => {
-  try {
-    // First, ensure EmailJS is initialized
-    initEmailJS();
-    
-    // Small delay to ensure initialization
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Send test email
-    const result = await sendEmail(
-      'anandknpr6992@gmail.com', 
-      'Test Email from Workflow Editor',
-      'This is a test email to verify the email service is working correctly. 🚀'
-    );
-    
-    console.log('Test result:', result);
-    return result;
-  } catch (error) {
-    console.error('Test failed:', error);
-    return { success: false, error: error.message };
+// Alternative: Send email without EmailJS (for testing)
+export const sendEmailMock = async (
+  to: string,
+  subject: string,
+  message: string,
+  fromName: string = 'Workflow Editor'
+) => {
+  // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  // Simulate success (90% success rate)
+  if (Math.random() > 0.1) {
+    return {
+      success: true,
+      message: 'Email sent successfully (mock)',
+    };
+  } else {
+    return {
+      success: false,
+      error: 'Failed to send email (mock)',
+    };
   }
 };
