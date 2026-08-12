@@ -1,4 +1,4 @@
-import  type { Node } from 'reactflow';
+
 import type { NodeData, CustomNode } from '../types/node.types';
 import { getNodeConfig } from '../components/constants/nodeDefinitions';
 

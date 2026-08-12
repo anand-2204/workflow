@@ -51,10 +51,10 @@ export const sendEmail = async (
 
 // Alternative: Send email without EmailJS (for testing)
 export const sendEmailMock = async (
-  to: string,
-  subject: string,
-  message: string,
-  fromName: string = 'Workflow Editor'
+  _to: string,
+  _subject: string,
+  _message: string,
+  _fromName: string = 'Workflow Editor'
 ) => {
   // Simulate network delay
   await new Promise(resolve => setTimeout(resolve, 1500));

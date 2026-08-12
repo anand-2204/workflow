@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { type NodeConfig, type NodeCategoryMap } from "../../types/node.types";
+import { type NodeCategoryMap } from "../../types/node.types";
 import { CategorySection } from "./CategorySection";
 import { NodeItem } from "./NodeItem";
 

@@ -32,7 +32,7 @@ export default function Editor() {
  const { showWorkflowError, showWorkflowSuccess, showWorkflowWarning, showWorkflowInfo } = useCustomAlert();
 
   // Clear canvas with confirmation
-  const clearCanvas = useCallback(async () => {
+  const _clearCanvas = useCallback(async () => {
     if (nodes.length === 0) return;
     
     const confirmed = await confirm({
@@ -222,7 +222,7 @@ export default function Editor() {
         }
         
         case 'database': {
-          const { query } = config;
+          const _query  = config;
           result = { success: true, message: 'Query executed' };
           break;
         }

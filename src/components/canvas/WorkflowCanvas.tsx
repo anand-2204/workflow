@@ -15,7 +15,7 @@ import { NodeComponent } from '../common/NodeComponent';
 import { NodeFactory, updateNodeStatus, updateNodeConfig } from '../../utils/nodeFactory';
 import { NODE_DEFINITIONS } from '../../components/constants/nodeDefinitions';
 import { useConfirm } from '../../hooks/useConfirm';
-
+import { ConnectionLineType } from 'reactflow';
 const nodeTypes = { 
   customNode: NodeComponent,
 };
@@ -90,8 +90,8 @@ const isUndoRedo = useRef(false);
   // ============ UNDO/REDO STATE ============
   const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
+  const [_canUndo, setCanUndo] = useState(false);
+  const [_canRedo, setCanRedo] = useState(false);
 
   // ============ NODE HANDLERS ============
   const addNodeHandlers = useCallback((nodesList: Node[]) => {
@@ -638,7 +638,7 @@ const isUndoRedo = useRef(false);
             strokeWidth: 3,
             strokeDasharray: '5,5'
           }}
-          connectionLineType="bezier"
+          connectionLineType={ConnectionLineType.Bezier}
           connectionRadius={20}
         >
           <Background 
