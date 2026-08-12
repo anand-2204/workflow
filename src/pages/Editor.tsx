@@ -437,13 +437,13 @@ useEffect(() => {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-          <button 
+          {/* <button 
             onClick={clearCanvas}
             className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
             title="Clear canvas"
           >
             <Trash2 size={16} />
-          </button>
+          </button> */}
         </div>
         <Sidebar onAddNode={() => {}} />
       </aside>
