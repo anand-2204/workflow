@@ -32,12 +32,12 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
   const getConfigFields = () => {
     const type = node.data?.type || node.type || '';
     
-    const commonFields = [
+    const commonFields: any[] = [
       { key: 'label', label: 'Label', type: 'text', value: node.data?.label || '' },
       { key: 'description', label: 'Description', type: 'text', value: node.data?.description || '' },
     ];
 
-    const typeSpecificFields: any = {
+    const typeSpecificFields: Record<string, any[]> = {
       'email': [
         { key: 'to', label: 'To (email)', type: 'email', placeholder: 'recipient@example.com', value: config.to || '' },
         { key: 'subject', label: 'Subject', type: 'text', placeholder: 'Email subject', value: config.subject || '' },

@@ -220,6 +220,7 @@ export default function Editor() {
         }
         
         case 'database': {
+          // const { query: _query } = config; 
           result = { success: true, message: 'Query executed' };
           break;
         }

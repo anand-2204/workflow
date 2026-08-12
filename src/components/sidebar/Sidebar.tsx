@@ -14,7 +14,7 @@ export const Sidebar = ({
   onAddNode 
 }: SidebarProps) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isCollapsed] = useState(initialIsCollapsed); // Removed _setIsCollapsed
+  const [isCollapsed] = useState(initialIsCollapsed);
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['Triggers', 'Actions', 'Logic']);
 
   const nodeCategories = getNodesByCategory();
