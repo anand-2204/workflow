@@ -2,16 +2,6 @@ import { useState, useCallback } from 'react';
 import type { Node } from 'reactflow';
 import { X, Save, RefreshCw } from 'lucide-react';
 
-// Define the Field interface properly
-interface Field {
-  key: string;
-  label: string;
-  type: string;
-  value?: any;
-  placeholder?: string;
-  options?: string[];
-}
-
 interface PropertiesPanelProps {
   node: Node;
   onUpdate: (data: any) => void;
@@ -39,15 +29,15 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
     setTimeout(() => setIsSaving(false), 500);
   }, [config, node.data?.label, node.data?.description, onUpdate]);
 
-  const getConfigFields = (): Field[] => {
+  const getConfigFields = () => {
     const type = node.data?.type || node.type || '';
     
-    const commonFields: Field[] = [
+    const commonFields = [
       { key: 'label', label: 'Label', type: 'text', value: node.data?.label || '' },
       { key: 'description', label: 'Description', type: 'text', value: node.data?.description || '' },
     ];
 
-    const typeSpecificFields: Record<string, Field[]> = {
+    const typeSpecificFields: any = {
       'email': [
         { key: 'to', label: 'To (email)', type: 'email', placeholder: 'recipient@example.com', value: config.to || '' },
         { key: 'subject', label: 'Subject', type: 'text', placeholder: 'Email subject', value: config.subject || '' },
@@ -92,7 +82,6 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
 
   return (
     <div className="w-96 bg-white border-l border-gray-200 flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-transparent flex-shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-gray-800">Properties</h3>
@@ -106,9 +95,8 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {fields.map((field) => (
+        {fields.map((field: any) => (
           <div key={field.key} className="space-y-1.5">
             <label className="text-xs font-medium text-gray-700 block">
               {field.label}
@@ -126,7 +114,7 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
                 onChange={(e) => handleChange(field.key, e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
               >
-                {field.options?.map((option) => (
+                {field.options?.map((option: string) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
@@ -143,7 +131,6 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
         ))}
       </div>
 
-      {/* Footer */}
       <div className="px-4 py-3 border-t border-gray-200 flex-shrink-0 bg-gray-50">
         <button
           onClick={handleSave}

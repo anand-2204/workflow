@@ -1,7 +1,6 @@
 import { useState } from 'react';
-
 import { getNodesByCategory } from '../constants/nodeDefinitions';
-import { SearchBar }  from './SearchBar';
+import { SearchBar } from './SearchBar';
 import { CategoryList } from './CategoryList';
 import { DragHint } from './DragHint';
 
@@ -15,7 +14,7 @@ export const Sidebar = ({
   onAddNode 
 }: SidebarProps) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isCollapsed, _setIsCollapsed] = useState(initialIsCollapsed);
+  const [isCollapsed] = useState(initialIsCollapsed); // Removed _setIsCollapsed
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['Triggers', 'Actions', 'Logic']);
 
   const nodeCategories = getNodesByCategory();

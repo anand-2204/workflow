@@ -1,11 +1,10 @@
-
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Node } from 'reactflow';
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
 import { PropertiesPanel } from '../components/PropertiesPanel';
 import { 
-  GitBranch,  PlayCircle,
+  GitBranch, Trash2, PlayCircle,
   Download, Upload, Undo2, Redo2, ZoomIn, ZoomOut,
   ChevronDown
 } from 'lucide-react';
@@ -13,9 +12,8 @@ import { initEmailJS, sendEmail } from '../services/mailService';
 import { useConfirm } from '../hooks/useConfirm';
 import { useCustomAlert } from '../hooks/useAlert';
 
-
 export default function Editor() {
- const [nodes, setNodes] = useState<Node[]>([]);
+  const [nodes, setNodes] = useState<Node[]>([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -27,12 +25,12 @@ export default function Editor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<any>(null);
 
- // Use the hooks
+  // Use the hooks
   const { confirm, ConfirmComponent } = useConfirm();
- const { showWorkflowError, showWorkflowSuccess, showWorkflowWarning, showWorkflowInfo } = useCustomAlert();
+  const { showWorkflowError, showWorkflowSuccess, showWorkflowWarning, showWorkflowInfo } = useCustomAlert();
 
   // Clear canvas with confirmation
-  const _clearCanvas = useCallback(async () => {
+  const clearCanvas = useCallback(async () => {
     if (nodes.length === 0) return;
     
     const confirmed = await confirm({
@@ -222,7 +220,6 @@ export default function Editor() {
         }
         
         case 'database': {
-          const { query :_query } = config;
           result = { success: true, message: 'Query executed' };
           break;
         }
@@ -261,7 +258,7 @@ export default function Editor() {
     }
   }, [logEmail]);
 
-  // Execute workflow - updated with alerts
+  // Execute workflow
   const executeWorkflow = useCallback(async () => {
     if (nodes.length === 0) {
       showWorkflowWarning('No nodes to execute!');
@@ -370,43 +367,42 @@ export default function Editor() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
- // In Editor.tsx
-const handleZoomIn = useCallback(() => {
-  canvasRef.current?.zoomIn?.();
-  // Use requestAnimationFrame for better performance
-  requestAnimationFrame(() => {
+  // Zoom handlers
+  const handleZoomIn = useCallback(() => {
+    canvasRef.current?.zoomIn?.();
+    requestAnimationFrame(() => {
+      const zoom = canvasRef.current?.getZoom?.() || 1;
+      setZoom(Math.round(zoom * 100));
+    });
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    canvasRef.current?.zoomOut?.();
+    requestAnimationFrame(() => {
+      const zoom = canvasRef.current?.getZoom?.() || 1;
+      setZoom(Math.round(zoom * 100));
+    });
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    canvasRef.current?.zoomReset?.();
+    requestAnimationFrame(() => {
+      const zoom = canvasRef.current?.getZoom?.() || 1;
+      setZoom(Math.round(zoom * 100));
+    });
+  }, []);
+
+  // Update zoom state
+  const updateZoomState = useCallback(() => {
     const zoom = canvasRef.current?.getZoom?.() || 1;
     setZoom(Math.round(zoom * 100));
-  });
-}, []);
+  }, []);
 
-const handleZoomOut = useCallback(() => {
-  canvasRef.current?.zoomOut?.();
-  requestAnimationFrame(() => {
-    const zoom = canvasRef.current?.getZoom?.() || 1;
-    setZoom(Math.round(zoom * 100));
-  });
-}, []);
-
-const handleZoomReset = useCallback(() => {
-  canvasRef.current?.zoomReset?.();
-  requestAnimationFrame(() => {
-    const zoom = canvasRef.current?.getZoom?.() || 1;
-    setZoom(Math.round(zoom * 100));
-  });
-}, []);
-
-// Update zoom state
-const updateZoomState = useCallback(() => {
-  const zoom = canvasRef.current?.getZoom?.() || 1;
-  setZoom(Math.round(zoom * 100));
-}, []);
-
-// Listen for zoom changes from React Flow
-useEffect(() => {
-  const timer = setTimeout(updateZoomState, 300);
-  return () => clearTimeout(timer);
-}, [updateZoomState]);
+  // Listen for zoom changes from React Flow
+  useEffect(() => {
+    const timer = setTimeout(updateZoomState, 300);
+    return () => clearTimeout(timer);
+  }, [updateZoomState]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -437,13 +433,13 @@ useEffect(() => {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-          {/* <button 
+          <button 
             onClick={clearCanvas}
             className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
             title="Clear canvas"
           >
             <Trash2 size={16} />
-          </button> */}
+          </button>
         </div>
         <Sidebar onAddNode={() => {}} />
       </aside>
@@ -531,7 +527,6 @@ useEffect(() => {
                 onNodeConfigChange={() => {}}
               />
             </div>
-               {ConfirmComponent}
 
             {/* Logs Panel */}
             {showLogs && emailLogs.length > 0 && (
@@ -573,6 +568,9 @@ useEffect(() => {
           )}
         </div>
       </main>
+
+      {/* Confirm Dialog - Rendered at the end */}
+      {ConfirmComponent}
     </div>
   );
 }
