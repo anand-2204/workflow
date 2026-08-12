@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search } from 'lucide-react';
+
 import { getNodesByCategory } from '../constants/nodeDefinitions';
 import { SearchBar }  from './SearchBar';
 import { CategoryList } from './CategoryList';

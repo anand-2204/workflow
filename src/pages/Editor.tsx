@@ -5,7 +5,7 @@ import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
 import { PropertiesPanel } from '../components/PropertiesPanel';
 import { 
-  GitBranch, Trash2, PlayCircle,
+  GitBranch,  PlayCircle,
   Download, Upload, Undo2, Redo2, ZoomIn, ZoomOut,
   ChevronDown
 } from 'lucide-react';
@@ -222,7 +222,7 @@ export default function Editor() {
         }
         
         case 'database': {
-          const _query  = config;
+          const { query :_query } = config;
           result = { success: true, message: 'Query executed' };
           break;
         }

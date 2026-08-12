@@ -2,6 +2,16 @@ import { useState, useCallback } from 'react';
 import type { Node } from 'reactflow';
 import { X, Save, RefreshCw } from 'lucide-react';
 
+// Define the Field interface properly
+interface Field {
+  key: string;
+  label: string;
+  type: string;
+  value?: any;
+  placeholder?: string;
+  options?: string[];
+}
+
 interface PropertiesPanelProps {
   node: Node;
   onUpdate: (data: any) => void;
@@ -29,48 +39,48 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
     setTimeout(() => setIsSaving(false), 500);
   }, [config, node.data?.label, node.data?.description, onUpdate]);
 
-  const getConfigFields = () => {
+  const getConfigFields = (): Field[] => {
     const type = node.data?.type || node.type || '';
     
-    const commonFields = [
+    const commonFields: Field[] = [
       { key: 'label', label: 'Label', type: 'text', value: node.data?.label || '' },
       { key: 'description', label: 'Description', type: 'text', value: node.data?.description || '' },
     ];
 
-    const typeSpecificFields: Record<string, Array<{ key: string; label: string; type: string; placeholder?: string }>> = {
+    const typeSpecificFields: Record<string, Field[]> = {
       'email': [
-        { key: 'to', label: 'To (email)', type: 'email', placeholder: 'recipient@example.com' },
-        { key: 'subject', label: 'Subject', type: 'text', placeholder: 'Email subject' },
-        { key: 'message', label: 'Message', type: 'textarea', placeholder: 'Email message content' },
-        { key: 'fromName', label: 'From Name', type: 'text', placeholder: 'Your name' },
+        { key: 'to', label: 'To (email)', type: 'email', placeholder: 'recipient@example.com', value: config.to || '' },
+        { key: 'subject', label: 'Subject', type: 'text', placeholder: 'Email subject', value: config.subject || '' },
+        { key: 'message', label: 'Message', type: 'textarea', placeholder: 'Email message content', value: config.message || '' },
+        { key: 'fromName', label: 'From Name', type: 'text', placeholder: 'Your name', value: config.fromName || '' },
       ],
       'whatsapp': [
-        { key: 'phoneNumber', label: 'Phone Number', type: 'text', placeholder: '+1234567890' },
-        { key: 'message', label: 'Message', type: 'textarea', placeholder: 'WhatsApp message' },
+        { key: 'phoneNumber', label: 'Phone Number', type: 'text', placeholder: '+1234567890', value: config.phoneNumber || '' },
+        { key: 'message', label: 'Message', type: 'textarea', placeholder: 'WhatsApp message', value: config.message || '' },
       ],
       'message': [
-        { key: 'phoneNumber', label: 'Phone Number', type: 'text', placeholder: '+1234567890' },
-        { key: 'message', label: 'Message', type: 'textarea', placeholder: 'WhatsApp message' },
+        { key: 'phoneNumber', label: 'Phone Number', type: 'text', placeholder: '+1234567890', value: config.phoneNumber || '' },
+        { key: 'message', label: 'Message', type: 'textarea', placeholder: 'WhatsApp message', value: config.message || '' },
       ],
       'http': [
-        { key: 'url', label: 'URL', type: 'url', placeholder: 'https://api.example.com' },
-        { key: 'method', label: 'Method', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'] },
+        { key: 'url', label: 'URL', type: 'url', placeholder: 'https://api.example.com', value: config.url || '' },
+        { key: 'method', label: 'Method', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'], value: config.method || 'GET' },
       ],
       'webhook': [
-        { key: 'url', label: 'Webhook URL', type: 'url', placeholder: 'https://webhook.site/...' },
-        { key: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT'] },
-        { key: 'headers', label: 'Headers (JSON)', type: 'textarea', placeholder: '{"Content-Type": "application/json"}' },
+        { key: 'url', label: 'Webhook URL', type: 'url', placeholder: 'https://webhook.site/...', value: config.url || '' },
+        { key: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT'], value: config.method || 'POST' },
+        { key: 'headers', label: 'Headers (JSON)', type: 'textarea', placeholder: '{"Content-Type": "application/json"}', value: config.headers || '' },
       ],
       'database': [
-        { key: 'query', label: 'SQL Query', type: 'textarea', placeholder: 'SELECT * FROM users' },
-        { key: 'connection', label: 'Connection String', type: 'text', placeholder: 'mongodb://...' },
+        { key: 'query', label: 'SQL Query', type: 'textarea', placeholder: 'SELECT * FROM users', value: config.query || '' },
+        { key: 'connection', label: 'Connection String', type: 'text', placeholder: 'mongodb://...', value: config.connection || '' },
       ],
       'function': [
-        { key: 'code', label: 'JavaScript Code', type: 'textarea', placeholder: '// Your code here\nreturn { success: true };' },
+        { key: 'code', label: 'JavaScript Code', type: 'textarea', placeholder: '// Your code here\nreturn { success: true };', value: config.code || '' },
       ],
       'schedule': [
-        { key: 'cron', label: 'Cron Expression', type: 'text', placeholder: '*/5 * * * *' },
-        { key: 'timezone', label: 'Timezone', type: 'text', placeholder: 'UTC' },
+        { key: 'cron', label: 'Cron Expression', type: 'text', placeholder: '*/5 * * * *', value: config.cron || '*/5 * * * *' },
+        { key: 'timezone', label: 'Timezone', type: 'text', placeholder: 'UTC', value: config.timezone || 'UTC' },
       ],
     };
 
@@ -105,14 +115,14 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
             </label>
             {field.type === 'textarea' ? (
               <textarea
-                value={config[field.key] || field.value || ''}
+                value={field.value || ''}
                 onChange={(e) => handleChange(field.key, e.target.value)}
-                placeholder={field.placeholder}
+                placeholder={field.placeholder || ''}
                 className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow resize-y min-h-[80px]"
               />
             ) : field.type === 'select' ? (
               <select
-                value={config[field.key] || field.value || field.options?.[0] || ''}
+                value={field.value || field.options?.[0] || ''}
                 onChange={(e) => handleChange(field.key, e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
               >
@@ -123,9 +133,9 @@ export const PropertiesPanel = ({ node, onUpdate, onClose }: PropertiesPanelProp
             ) : (
               <input
                 type={field.type || 'text'}
-                value={config[field.key] || field.value || ''}
+                value={field.value || ''}
                 onChange={(e) => handleChange(field.key, e.target.value)}
-                placeholder={field.placeholder}
+                placeholder={field.placeholder || ''}
                 className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
               />
             )}
