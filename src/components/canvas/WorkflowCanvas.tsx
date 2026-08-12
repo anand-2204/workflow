@@ -41,6 +41,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   const [nodes, setNodes, onNodesChange] = useNodesState(externalNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const reactFlowInstanceRef = useRef<any>(null);
   const isInternalUpdate = useRef(false);
 
   // ============ HELPER FUNCTIONS ============
@@ -53,11 +54,6 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   const getNodeType = useCallback((node: Node | undefined): string => {
     if (!node) return '';
     return node.data?.type || node.type || '';
-  }, []);
-
-  const logConnectionStatus = useCallback((status: 'success' | 'error' | 'warning', message: string, data?: any) => {
-    const prefix = status === 'success' ? '✅' : status === 'error' ? '❌' : '⚠️';
-    console.log(`${prefix} Connection: ${message}`, data || '');
   }, []);
 
   const checkForCycle = useCallback((sourceId: string, targetId: string, edgesList: Edge[]): boolean => {
@@ -110,7 +106,6 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
             if (setExternalNodes) {
               setExternalNodes(updatedNodes);
             }
-            logConnectionStatus('success', `Node "${getNodeLabel(nodesList.find(n => n.id === nodeId))}" deleted`);
           }
         },
         onConfigChange: (nodeId: string, config: Record<string, any>) => {
@@ -127,11 +122,10 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           if (onNodeConfigChange) {
             onNodeConfigChange(nodeId, config);
           }
-          logConnectionStatus('success', `Node "${getNodeLabel(nodesList.find(n => n.id === nodeId))}" configured`);
         },
       }
     }));
-  }, [setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange, getNodeLabel, logConnectionStatus]);
+  }, [setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange]);
 
   // Initialize nodes with handlers
   useEffect(() => {
@@ -235,6 +229,60 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     return false;
   }, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
 
+  // ============ CLEAR CANVAS ============
+  const clearCanvas = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setHistory([]);
+    setHistoryIndex(-1);
+    setCanUndo(false);
+    setCanRedo(false);
+    localStorage.removeItem('workflowNodes');
+    
+    if (setSelectedNode) {
+      setSelectedNode(null);
+    }
+    
+    if (setExternalNodes) {
+      setExternalNodes([]);
+    }
+  }, [setNodes, setEdges, setExternalNodes, setSelectedNode]);
+
+  // ============ INIT HANDLER ============
+  const onInit = useCallback((instance: any) => {
+    reactFlowInstanceRef.current = instance;
+  }, []);
+
+  // ============ ZOOM FUNCTIONS ============
+  const zoomIn = useCallback(() => {
+    if (reactFlowInstanceRef.current) {
+      const currentZoom = reactFlowInstanceRef.current.getZoom();
+      const newZoom = Math.min(currentZoom + 0.1, 2);
+      reactFlowInstanceRef.current.zoomTo(newZoom);
+    }
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    if (reactFlowInstanceRef.current) {
+      const currentZoom = reactFlowInstanceRef.current.getZoom();
+      const newZoom = Math.max(currentZoom - 0.1, 0.5);
+      reactFlowInstanceRef.current.zoomTo(newZoom);
+    }
+  }, []);
+
+  const zoomReset = useCallback(() => {
+    if (reactFlowInstanceRef.current) {
+      reactFlowInstanceRef.current.zoomTo(1);
+    }
+  }, []);
+
+  const getZoom = useCallback(() => {
+    if (reactFlowInstanceRef.current) {
+      return reactFlowInstanceRef.current.getZoom();
+    }
+    return 1;
+  }, []);
+
   // ============ EXPOSE FUNCTIONS TO PARENT ============
   useImperativeHandle(ref, () => ({
     undo,
@@ -243,21 +291,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       canUndo: historyIndex > 0,
       canRedo: historyIndex < history.length - 1,
     }),
-    clearCanvas: () => {
-      setNodes([]);
-      setEdges([]);
-      setHistory([]);
-      setHistoryIndex(-1);
-      setCanUndo(false);
-      setCanRedo(false);
-      localStorage.removeItem('workflowNodes');
-      if (setExternalNodes) {
-        setExternalNodes([]);
-      }
-      if (setSelectedNode) {
-        setSelectedNode(null);
-      }
-    },
+    clearCanvas,
     updateNodeStatus: (nodeId: string, status: 'idle' | 'running' | 'success' | 'error') => {
       const updatedNodes = nodes.map((node) => {
         if (node.id === nodeId) {
@@ -287,196 +321,148 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       if (onNodeConfigChange) {
         onNodeConfigChange(nodeId, config);
       }
-    }
-  }), [undo, redo, historyIndex, history.length, setNodes, setEdges, setExternalNodes, setSelectedNode, nodes, onNodeStatusChange, onNodeConfigChange]);
+    },
+    zoomIn,
+    zoomOut,
+    zoomReset,
+    getZoom,
+  }), [undo, redo, historyIndex, history.length, setNodes, setEdges, setExternalNodes, setSelectedNode, nodes, onNodeStatusChange, onNodeConfigChange, clearCanvas, zoomIn, zoomOut, zoomReset, getZoom]);
 
   // ============ CONNECTION VALIDATION ============
   const isValidConnection = useCallback(
     (connection: Connection) => {
-      logConnectionStatus('warning', 'Validating connection', { source: connection.source, target: connection.target });
-
       try {
         if (!connection) {
-          logConnectionStatus('error', 'Connection object is null or undefined');
           return false;
         }
 
         const { source, target } = connection;
 
         if (!source || !target) {
-          logConnectionStatus('error', 'Missing source or target', { source, target });
+          return false;
+        }
+
+        // Prevent self-connection
+        if (source === target) {
           return false;
         }
 
         const sourceNode = nodes.find(n => n.id === source);
         const targetNode = nodes.find(n => n.id === target);
         
-        if (!sourceNode) {
-          logConnectionStatus('error', `Source node not found: ${source}`);
-          return false;
-        }
-        
-        if (!targetNode) {
-          logConnectionStatus('error', `Target node not found: ${target}`);
-          return false;
-        }
-
-        // Prevent self-connection
-        if (source === target) {
-          logConnectionStatus('error', `Cannot connect node "${getNodeLabel(sourceNode)}" to itself`);
+        if (!sourceNode || !targetNode) {
           return false;
         }
 
         const sourceType = getNodeType(sourceNode);
         const targetType = getNodeType(targetNode);
 
-        // Prevent duplicate connections
+        // Check for existing connection
         const existingEdge = edges.find(
           e => e.source === source && e.target === target
         );
         if (existingEdge) {
-          logConnectionStatus('error', `Connection already exists between "${getNodeLabel(sourceNode)}" and "${getNodeLabel(targetNode)}"`);
           return false;
         }
 
-        // Validate node types
         if (!sourceType || !targetType) {
-          logConnectionStatus('error', 'Missing node type', { sourceType, targetType });
           return false;
         }
 
-        // ============ HANDLE VALIDATION ============
-        
-        // 1. START node: Only has outgoing connection (no incoming)
+        // START node validation - can only have outgoing
         if (sourceType === 'start' || sourceNode.data?.label === 'Start') {
-          // Start node can only have outgoing connections
           const outgoingCount = edges.filter(e => e.source === source).length;
           if (outgoingCount >= 1) {
-            logConnectionStatus('error', `Start node "${getNodeLabel(sourceNode)}" can only have one outgoing connection`);
             return false;
           }
         }
 
-        // 2. END node: Only has incoming connection (no outgoing)
+        // END node validation - cannot have outgoing
         if (sourceType === 'end' || sourceNode.data?.label === 'End') {
-          logConnectionStatus('error', `End node "${getNodeLabel(sourceNode)}" cannot have outgoing connections`);
           return false;
         }
 
-        // 3. Target cannot be Start node (Start nodes don't have incoming connections)
+        // Target cannot be Start node
         if (targetType === 'start' || targetNode.data?.label === 'Start') {
-          logConnectionStatus('error', `Cannot connect to Start node "${getNodeLabel(targetNode)}" - Start nodes don't accept incoming connections`);
           return false;
         }
 
-        // 4. Source cannot be End node (End nodes don't have outgoing connections)
+        // Source cannot be End node
         if (sourceType === 'end' || sourceNode.data?.label === 'End') {
-          logConnectionStatus('error', `Cannot connect from End node "${getNodeLabel(sourceNode)}" - End nodes don't have outgoing connections`);
           return false;
         }
 
-        // 5. Check max outgoing connections for source
+        // Check max outgoing connections for source
         const sourceConfig = NODE_DEFINITIONS?.[sourceType];
         if (sourceConfig?.validation?.maxOutgoingConnections !== undefined) {
           const outgoingEdges = edges.filter(e => e.source === source);
-          const outgoingCount = outgoingEdges.length;
-          
-          if (outgoingCount >= sourceConfig.validation.maxOutgoingConnections) {
-            logConnectionStatus(
-              'error', 
-              `Source node "${getNodeLabel(sourceNode)}" already has ${outgoingCount} outgoing connections (max: ${sourceConfig.validation.maxOutgoingConnections})`
-            );
+          if (outgoingEdges.length >= sourceConfig.validation.maxOutgoingConnections) {
             return false;
           }
         }
 
-        // 6. Check max incoming connections for target
+        // Check max incoming connections for target
         const targetConfig = NODE_DEFINITIONS?.[targetType];
         if (targetConfig?.validation?.maxIncomingConnections !== undefined) {
           const incomingEdges = edges.filter(e => e.target === target);
-          const incomingCount = incomingEdges.length;
-          
-          if (incomingCount >= targetConfig.validation.maxIncomingConnections) {
-            logConnectionStatus(
-              'error', 
-              `Target node "${getNodeLabel(targetNode)}" already has ${incomingCount} incoming connections (max: ${targetConfig.validation.maxIncomingConnections})`
-            );
+          if (incomingEdges.length >= targetConfig.validation.maxIncomingConnections) {
             return false;
           }
         }
 
-        // 7. Check for cycles
+        // Check for cycles
         if (checkForCycle(source, target, edges)) {
-          logConnectionStatus('error', `Connection would create a cycle between "${getNodeLabel(sourceNode)}" and "${getNodeLabel(targetNode)}"`);
           return false;
         }
 
-        // 8. Trigger nodes (webhook, schedule) can only have one outgoing
+        // Trigger nodes (webhook, schedule) can only have one outgoing
         if (sourceType === 'webhook' || sourceType === 'schedule') {
           const outgoingEdges = edges.filter(e => e.source === source);
           if (outgoingEdges.length >= 1) {
-            logConnectionStatus(
-              'error', 
-              `Trigger node "${getNodeLabel(sourceNode)}" can only have one outgoing connection`
-            );
             return false;
           }
         }
 
-        // All validations passed
-        logConnectionStatus(
-          'success', 
-          `Connection valid: "${getNodeLabel(sourceNode)}" → "${getNodeLabel(targetNode)}"`
-        );
         return true;
 
       } catch (error) {
-        logConnectionStatus('error', 'Unexpected error in connection validation', error);
+        console.error('Connection validation error:', error);
         return false;
       }
     },
-    [nodes, edges, getNodeLabel, getNodeType, logConnectionStatus, checkForCycle]
+    [nodes, edges, getNodeType, checkForCycle]
   );
 
   // ============ CONNECTION HANDLER ============
   const onConnect = useCallback(
     (params: Connection) => {
-      logConnectionStatus('warning', 'Connection attempt', { source: params.source, target: params.target });
-      
       if (isValidConnection(params)) {
-        const sourceNode = nodes.find(n => n.id === params.source);
-        const targetNode = nodes.find(n => n.id === params.target);
-        
         const newEdge = {
           ...params,
           id: `edge-${params.source}-${params.target}-${Date.now()}`,
           animated: true,
           style: { stroke: '#3b82f6', strokeWidth: 2 },
-          data: {
-            sourceLabel: getNodeLabel(sourceNode),
-            targetLabel: getNodeLabel(targetNode),
-          }
         };
         
-        setEdges((eds) => addEdge(newEdge, eds));
-        logConnectionStatus(
-          'success', 
-          `Edge added: "${getNodeLabel(sourceNode)}" → "${getNodeLabel(targetNode)}"`
-        );
-      } else {
-        logConnectionStatus('error', 'Connection rejected - validation failed');
+        setEdges((eds) => {
+          // Check if edge already exists
+          const exists = eds.some(e => e.source === params.source && e.target === params.target);
+          if (exists) {
+            return eds;
+          }
+          return addEdge(newEdge, eds);
+        });
       }
     },
-    [setEdges, isValidConnection, nodes, getNodeLabel, logConnectionStatus]
+    [setEdges, isValidConnection]
   );
 
   // ============ NODE CLICK HANDLER ============
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (setSelectedNode) {
       setSelectedNode(node);
-      logConnectionStatus('success', `Node selected: "${getNodeLabel(node)}"`);
     }
-  }, [setSelectedNode, getNodeLabel, logConnectionStatus]);
+  }, [setSelectedNode]);
 
   // ============ NODE DRAG HANDLER ============
   const onNodeDragStop = useCallback(
@@ -499,12 +485,8 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
     
     if (window.confirm(`Delete connection between "${getNodeLabel(sourceNode)}" and "${getNodeLabel(targetNode)}"?`)) {
       setEdges((eds) => eds.filter((e) => e.id !== edge.id));
-      logConnectionStatus(
-        'success', 
-        `Edge deleted: "${getNodeLabel(sourceNode)}" → "${getNodeLabel(targetNode)}"`
-      );
     }
-  }, [setEdges, nodes, getNodeLabel, logConnectionStatus]);
+  }, [setEdges, nodes, getNodeLabel]);
 
   // ============ PANE CLICK HANDLER ============
   const onPaneClick = useCallback(() => {
@@ -572,10 +554,8 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       if (setExternalNodes) {
         setExternalNodes(updatedNodes);
       }
-      
-      logConnectionStatus('success', `Node dropped: "${getNodeLabel(newNode)}"`);
     },
-    [nodes, setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange, getNodeLabel, logConnectionStatus]
+    [nodes, setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange]
   );
 
   // ============ RENDER ============
@@ -597,6 +577,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         onEdgeClick={onEdgeClick}
         onDrop={onDrop}
         onDragOver={onDragOver}
+        onInit={onInit}
         nodeTypes={nodeTypes}
         fitView
         className="bg-gray-50 dark:bg-gray-900"

@@ -352,10 +352,43 @@ export default function Editor() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
-  // Zoom handlers
-  const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
-  const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
-  const handleZoomReset = () => setZoom(100);
+ // In Editor.tsx
+const handleZoomIn = useCallback(() => {
+  canvasRef.current?.zoomIn?.();
+  // Use requestAnimationFrame for better performance
+  requestAnimationFrame(() => {
+    const zoom = canvasRef.current?.getZoom?.() || 1;
+    setZoom(Math.round(zoom * 100));
+  });
+}, []);
+
+const handleZoomOut = useCallback(() => {
+  canvasRef.current?.zoomOut?.();
+  requestAnimationFrame(() => {
+    const zoom = canvasRef.current?.getZoom?.() || 1;
+    setZoom(Math.round(zoom * 100));
+  });
+}, []);
+
+const handleZoomReset = useCallback(() => {
+  canvasRef.current?.zoomReset?.();
+  requestAnimationFrame(() => {
+    const zoom = canvasRef.current?.getZoom?.() || 1;
+    setZoom(Math.round(zoom * 100));
+  });
+}, []);
+
+// Update zoom state
+const updateZoomState = useCallback(() => {
+  const zoom = canvasRef.current?.getZoom?.() || 1;
+  setZoom(Math.round(zoom * 100));
+}, []);
+
+// Listen for zoom changes from React Flow
+useEffect(() => {
+  const timer = setTimeout(updateZoomState, 300);
+  return () => clearTimeout(timer);
+}, [updateZoomState]);
 
   // Keyboard shortcuts
   useEffect(() => {
