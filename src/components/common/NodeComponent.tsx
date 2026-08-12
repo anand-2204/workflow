@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React,{ useState } from 'react';
 import { Handle, Position } from 'reactflow';
 import { X, CheckCircle, AlertCircle, Loader2, Settings } from 'lucide-react';
 import type { NodeData } from '../../types/node.types';
@@ -152,11 +152,11 @@ export const NodeComponent = ({ data, selected, id, isConnectable = true }: Node
 
       {/* Content */}
       <div className="flex items-center gap-3">
-        {data.icon && (
-          <div className={`text-xl ${iconColor} ${status === 'running' ? 'animate-bounce' : ''}`}>
-            {data.icon}
-          </div>
-        )}
+       {data.icon && React.isValidElement(data.icon) && (
+        <div className={`text-xl ${iconColor}`}>
+          {data.icon}
+        </div>
+      )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <div className="font-semibold text-gray-800 dark:text-gray-200 text-sm truncate">

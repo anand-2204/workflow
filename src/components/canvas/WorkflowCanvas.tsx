@@ -44,7 +44,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstanceRef = useRef<any>(null);
   const isInternalUpdate = useRef(false);
-
+const isUndoRedo = useRef(false);
   // Use confirmation hook
   const { confirm, ConfirmComponent } = useConfirm();
 
@@ -180,96 +180,102 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   }, [historyIndex, history.length, updateUndoRedoState]);
 
   const saveStateToHistory = useCallback(() => {
-    if (isInternalUpdate.current) return;
-    
-    const newState = { 
-      nodes: JSON.parse(JSON.stringify(nodes)), 
-      edges: JSON.parse(JSON.stringify(edges)) 
-    };
-    
-    setHistory(prev => {
-      const newHistory = prev.slice(0, historyIndex + 1);
-      newHistory.push(newState);
-      if (newHistory.length > 50) {
-        newHistory.shift();
-      }
-      return newHistory;
-    });
-    setHistoryIndex(prev => Math.min(prev + 1, 49));
-  }, [nodes, edges, historyIndex]);
+  if (isInternalUpdate.current || isUndoRedo.current) return;
+  
+  const newState = { 
+    nodes: JSON.parse(JSON.stringify(nodes)), 
+    edges: JSON.parse(JSON.stringify(edges)) 
+  };
+  
+  setHistory(prev => {
+    const newHistory = prev.slice(0, historyIndex + 1);
+    newHistory.push(newState);
+    if (newHistory.length > 50) newHistory.shift();
+    return newHistory;
+  });
+  
+  setHistoryIndex(prev => Math.min(prev + 1, 49));
+}, [nodes, edges, historyIndex]);
 
   useEffect(() => {
     saveStateToHistory();
   }, [nodes, edges, saveStateToHistory]);
 
   const undo = useCallback(() => {
-    if (historyIndex > 0) {
-      isInternalUpdate.current = true;
-      const prevState = history[historyIndex - 1];
-      setNodes(prevState.nodes);
-      setEdges(prevState.edges);
-      setHistoryIndex(prev => prev - 1);
-      
-      if (setExternalNodes) {
-        setExternalNodes(prevState.nodes);
-      }
-      
-      setTimeout(() => {
-        isInternalUpdate.current = false;
-      }, 100);
-      return true;
+  if (historyIndex > 0) {
+    isUndoRedo.current = true;
+    isInternalUpdate.current = true;
+    
+    const prevState = history[historyIndex - 1];
+    setNodes(prevState.nodes);
+    setEdges(prevState.edges);
+    setHistoryIndex(prev => prev - 1);
+    
+    if (setExternalNodes) {
+      setExternalNodes(prevState.nodes);
     }
-    return false;
-  }, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
+    
+    setTimeout(() => {
+      isInternalUpdate.current = false;
+      isUndoRedo.current = false;
+    }, 100);
+    
+    return true;
+  }
+  return false;
+}, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
 
   const redo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      isInternalUpdate.current = true;
-      const nextState = history[historyIndex + 1];
-      setNodes(nextState.nodes);
-      setEdges(nextState.edges);
-      setHistoryIndex(prev => prev + 1);
-      
-      if (setExternalNodes) {
-        setExternalNodes(nextState.nodes);
-      }
-      
-      setTimeout(() => {
-        isInternalUpdate.current = false;
-      }, 100);
-      return true;
+  if (historyIndex < history.length - 1) {
+    isUndoRedo.current = true;
+    isInternalUpdate.current = true;
+    
+    const nextState = history[historyIndex + 1];
+    setNodes(nextState.nodes);
+    setEdges(nextState.edges);
+    setHistoryIndex(prev => prev + 1);
+    
+    if (setExternalNodes) {
+      setExternalNodes(nextState.nodes);
     }
-    return false;
-  }, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
+    
+    setTimeout(() => {
+      isInternalUpdate.current = false;
+      isUndoRedo.current = false;
+    }, 100);
+    
+    return true;
+  }
+  return false;
+}, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
 
-  // ============ CLEAR CANVAS ============
+
   const clearCanvas = useCallback(async () => {
-    const confirmed = await confirm({
-      title: 'Clear Canvas',
-      message: 'Are you sure you want to clear all nodes? This action cannot be undone.',
-      confirmText: 'Clear All',
-      cancelText: 'Cancel',
-      type: 'danger',
-    });
+  const confirmed = await confirm({
+    title: 'Clear Canvas',
+    message: 'Are you sure you want to clear all nodes? This action cannot be undone.',
+    confirmText: 'Clear All',
+    cancelText: 'Cancel',
+    type: 'danger',
+  });
 
-    if (confirmed) {
-      setNodes([]);
-      setEdges([]);
-      setHistory([]);
-      setHistoryIndex(-1);
-      setCanUndo(false);
-      setCanRedo(false);
-      localStorage.removeItem('workflowNodes');
-      
-      if (setSelectedNode) {
-        setSelectedNode(null);
-      }
-      
-      if (setExternalNodes) {
-        setExternalNodes([]);
-      }
+  if (confirmed) {
+    setNodes([]);
+    setEdges([]);
+    setHistory([]);
+    setHistoryIndex(-1);
+    setCanUndo(false);
+    setCanRedo(false);
+    localStorage.removeItem('workflowNodes');
+    
+    if (setSelectedNode) {
+      setSelectedNode(null);
     }
-  }, [setNodes, setEdges, setExternalNodes, setSelectedNode, confirm]);
+    if (setExternalNodes) {
+      setExternalNodes([]);
+    }
+  }
+}, [setNodes, setEdges, setExternalNodes, setSelectedNode, confirm]);
 
   // ============ INIT HANDLER ============
   const onInit = useCallback((instance: any) => {

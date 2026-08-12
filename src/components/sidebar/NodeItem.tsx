@@ -1,5 +1,7 @@
 import { Plus } from "lucide-react";
 import type { NodeConfig } from "../../types/node.types.ts";
+import React from "react";
+
 
 interface NodeItemProps {
   node: NodeConfig;
@@ -51,7 +53,7 @@ export const NodeItem = ({ node, isCollapsed, onAddNode }: NodeItemProps) => {
     >
       <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${node.iconBg} ${node.borderColor} border-2 shadow-sm`}>
         <div className={`${node.iconColor} transition-transform duration-200 group-hover:scale-110`}>
-          {node.icon}
+         {node.icon && React.isValidElement(node.icon) ? node.icon : null}
         </div>
       </div>
 
