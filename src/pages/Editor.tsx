@@ -1,3 +1,4 @@
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Node } from 'reactflow';
 import { Sidebar } from '../components/sidebar/Sidebar';
@@ -9,9 +10,12 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { initEmailJS, sendEmail } from '../services/mailService';
+import { useConfirm } from '../hooks/useConfirm';
+import { useCustomAlert } from '../hooks/useAlert';
+
 
 export default function Editor() {
-  const [nodes, setNodes] = useState<Node[]>([]);
+ const [nodes, setNodes] = useState<Node[]>([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -23,10 +27,23 @@ export default function Editor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<any>(null);
 
-  // Clear canvas
-  const clearCanvas = useCallback(() => {
+ // Use the hooks
+  const { confirm, ConfirmComponent } = useConfirm();
+ const { showWorkflowError, showWorkflowSuccess, showWorkflowWarning, showWorkflowInfo } = useCustomAlert();
+
+  // Clear canvas with confirmation
+  const clearCanvas = useCallback(async () => {
     if (nodes.length === 0) return;
-    if (window.confirm('Are you sure you want to clear all nodes?')) {
+    
+    const confirmed = await confirm({
+      title: 'Clear Canvas',
+      message: 'Are you sure you want to clear all nodes? This action cannot be undone.',
+      confirmText: 'Clear All',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+
+    if (confirmed) {
       canvasRef.current?.clearCanvas?.();
       setNodes([]);
       setSelectedNode(null);
@@ -38,8 +55,9 @@ export default function Editor() {
       setTimeout(() => {
         canvasRef.current?.clearCanvas?.();
       }, 0);
+      showWorkflowInfo('Canvas cleared successfully');
     }
-  }, [nodes]);
+  }, [nodes, confirm, showWorkflowInfo]);
 
   // Initialize EmailJS
   useEffect(() => {
@@ -243,16 +261,16 @@ export default function Editor() {
     }
   }, [logEmail]);
 
-  // Execute workflow
+  // Execute workflow - updated with alerts
   const executeWorkflow = useCallback(async () => {
     if (nodes.length === 0) {
-      alert('No nodes to execute!');
+      showWorkflowWarning('No nodes to execute!');
       return;
     }
 
     const startNode = nodes.find(n => n.type === 'start' || n.data?.label === 'Start');
     if (!startNode) {
-      alert('No start node found! Please add a Start node to begin your workflow.');
+      showWorkflowError('No start node found! Please add a Start node to begin your workflow.');
       return;
     }
 
@@ -295,17 +313,17 @@ export default function Editor() {
         executedNodes: executableNodes.length
       });
       
-      alert('✅ Workflow executed successfully! Check the logs for details.');
+      showWorkflowSuccess('Workflow executed successfully! Check the logs for details.');
     } catch (error: any) {
       logEmail('WORKFLOW EXECUTION FAILED', { 
         error: error.message,
         timestamp: new Date().toISOString()
       });
-      alert(`❌ Workflow failed: ${error.message || 'Unknown error'}\n\nCheck logs for details.`);
+      showWorkflowError(`${error.message || 'Unknown error'}\n\nCheck logs for details.`);
     } finally {
       setIsExecuting(false);
     }
-  }, [nodes, executeNode, logEmail]);
+  }, [nodes, executeNode, logEmail, showWorkflowError, showWorkflowSuccess, showWorkflowWarning]);
 
   // Export/Import
   const exportWorkflow = useCallback(() => {
@@ -513,6 +531,7 @@ useEffect(() => {
                 onNodeConfigChange={() => {}}
               />
             </div>
+               {ConfirmComponent}
 
             {/* Logs Panel */}
             {showLogs && emailLogs.length > 0 && (

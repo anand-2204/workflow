@@ -14,6 +14,7 @@ import 'reactflow/dist/style.css';
 import { NodeComponent } from '../common/NodeComponent';
 import { NodeFactory, updateNodeStatus, updateNodeConfig } from '../../utils/nodeFactory';
 import { NODE_DEFINITIONS } from '../../components/constants/nodeDefinitions';
+import { useConfirm } from '../../hooks/useConfirm';
 
 const nodeTypes = { 
   customNode: NodeComponent,
@@ -43,6 +44,9 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstanceRef = useRef<any>(null);
   const isInternalUpdate = useRef(false);
+
+  // Use confirmation hook
+  const { confirm, ConfirmComponent } = useConfirm();
 
   // ============ HELPER FUNCTIONS ============
   
@@ -95,8 +99,17 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       ...node,
       data: {
         ...node.data,
-        onDelete: (nodeId: string) => {
-          if (window.confirm('Are you sure you want to delete this node?')) {
+        onDelete: async (nodeId: string) => {
+          const nodeLabel = getNodeLabel(nodesList.find(n => n.id === nodeId));
+          const confirmed = await confirm({
+            title: 'Delete Node',
+            message: `Are you sure you want to delete "${nodeLabel}"? This action cannot be undone.`,
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            type: 'danger',
+          });
+
+          if (confirmed) {
             const updatedNodes = nodesList.filter((n) => n.id !== nodeId);
             setNodes(updatedNodes);
             setEdges(prev => prev.filter(e => e.source !== nodeId && e.target !== nodeId));
@@ -125,7 +138,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         },
       }
     }));
-  }, [setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange]);
+  }, [setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange, getNodeLabel, confirm]);
 
   // Initialize nodes with handlers
   useEffect(() => {
@@ -230,23 +243,33 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   }, [history, historyIndex, setNodes, setEdges, setExternalNodes]);
 
   // ============ CLEAR CANVAS ============
-  const clearCanvas = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    setHistory([]);
-    setHistoryIndex(-1);
-    setCanUndo(false);
-    setCanRedo(false);
-    localStorage.removeItem('workflowNodes');
-    
-    if (setSelectedNode) {
-      setSelectedNode(null);
+  const clearCanvas = useCallback(async () => {
+    const confirmed = await confirm({
+      title: 'Clear Canvas',
+      message: 'Are you sure you want to clear all nodes? This action cannot be undone.',
+      confirmText: 'Clear All',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+
+    if (confirmed) {
+      setNodes([]);
+      setEdges([]);
+      setHistory([]);
+      setHistoryIndex(-1);
+      setCanUndo(false);
+      setCanRedo(false);
+      localStorage.removeItem('workflowNodes');
+      
+      if (setSelectedNode) {
+        setSelectedNode(null);
+      }
+      
+      if (setExternalNodes) {
+        setExternalNodes([]);
+      }
     }
-    
-    if (setExternalNodes) {
-      setExternalNodes([]);
-    }
-  }, [setNodes, setEdges, setExternalNodes, setSelectedNode]);
+  }, [setNodes, setEdges, setExternalNodes, setSelectedNode, confirm]);
 
   // ============ INIT HANDLER ============
   const onInit = useCallback((instance: any) => {
@@ -342,7 +365,6 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           return false;
         }
 
-        // Prevent self-connection
         if (source === target) {
           return false;
         }
@@ -357,7 +379,6 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         const sourceType = getNodeType(sourceNode);
         const targetType = getNodeType(targetNode);
 
-        // Check for existing connection
         const existingEdge = edges.find(
           e => e.source === source && e.target === target
         );
@@ -369,7 +390,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           return false;
         }
 
-        // START node validation - can only have outgoing
+        // START node validation
         if (sourceType === 'start' || sourceNode.data?.label === 'Start') {
           const outgoingCount = edges.filter(e => e.source === source).length;
           if (outgoingCount >= 1) {
@@ -377,7 +398,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           }
         }
 
-        // END node validation - cannot have outgoing
+        // END node validation
         if (sourceType === 'end' || sourceNode.data?.label === 'End') {
           return false;
         }
@@ -392,7 +413,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           return false;
         }
 
-        // Check max outgoing connections for source
+        // Check max outgoing connections
         const sourceConfig = NODE_DEFINITIONS?.[sourceType];
         if (sourceConfig?.validation?.maxOutgoingConnections !== undefined) {
           const outgoingEdges = edges.filter(e => e.source === source);
@@ -401,7 +422,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           }
         }
 
-        // Check max incoming connections for target
+        // Check max incoming connections
         const targetConfig = NODE_DEFINITIONS?.[targetType];
         if (targetConfig?.validation?.maxIncomingConnections !== undefined) {
           const incomingEdges = edges.filter(e => e.target === target);
@@ -415,7 +436,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
           return false;
         }
 
-        // Trigger nodes (webhook, schedule) can only have one outgoing
+        // Trigger nodes validation
         if (sourceType === 'webhook' || sourceType === 'schedule') {
           const outgoingEdges = edges.filter(e => e.source === source);
           if (outgoingEdges.length >= 1) {
@@ -445,7 +466,6 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         };
         
         setEdges((eds) => {
-          // Check if edge already exists
           const exists = eds.some(e => e.source === params.source && e.target === params.target);
           if (exists) {
             return eds;
@@ -479,14 +499,22 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   );
 
   // ============ EDGE DELETE HANDLER ============
-  const onEdgeClick = useCallback((_: React.MouseEvent, edge: Edge) => {
+  const onEdgeClick = useCallback(async (_: React.MouseEvent, edge: Edge) => {
     const sourceNode = nodes.find(n => n.id === edge.source);
     const targetNode = nodes.find(n => n.id === edge.target);
     
-    if (window.confirm(`Delete connection between "${getNodeLabel(sourceNode)}" and "${getNodeLabel(targetNode)}"?`)) {
+    const confirmed = await confirm({
+      title: 'Delete Connection',
+      message: `Delete connection between "${getNodeLabel(sourceNode)}" and "${getNodeLabel(targetNode)}"?`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+
+    if (confirmed) {
       setEdges((eds) => eds.filter((e) => e.id !== edge.id));
     }
-  }, [setEdges, nodes, getNodeLabel]);
+  }, [setEdges, nodes, getNodeLabel, confirm]);
 
   // ============ PANE CLICK HANDLER ============
   const onPaneClick = useCallback(() => {
@@ -502,7 +530,7 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
   }, []);
 
   const onDrop = useCallback(
-    (event: React.DragEvent) => {
+    async (event: React.DragEvent) => {
       event.preventDefault();
       
       const type = event.dataTransfer.getData('application/reactflow');
@@ -519,8 +547,17 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
       };
 
       const newNode = NodeFactory.createNodeFromDrop(type, position, {
-        onDelete: (nodeId: string) => {
-          if (window.confirm('Are you sure you want to delete this node?')) {
+        onDelete: async (nodeId: string) => {
+          const nodeLabel = getNodeLabel(nodes.find(n => n.id === nodeId));
+          const confirmed = await confirm({
+            title: 'Delete Node',
+            message: `Are you sure you want to delete "${nodeLabel}"? This action cannot be undone.`,
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            type: 'danger',
+          });
+
+          if (confirmed) {
             const updatedNodes = nodes.filter((n) => n.id !== nodeId);
             setNodes(updatedNodes);
             setEdges(prev => prev.filter(e => e.source !== nodeId && e.target !== nodeId));
@@ -555,67 +592,72 @@ export const WorkflowCanvas = forwardRef<any, WorkflowCanvasProps>(({
         setExternalNodes(updatedNodes);
       }
     },
-    [nodes, setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange]
+    [nodes, setNodes, setExternalNodes, selectedNode, setSelectedNode, onNodeConfigChange, getNodeLabel, confirm]
   );
 
   // ============ RENDER ============
   return (
-    <div 
-      ref={reactFlowWrapper}
-      className="w-full h-full relative"
-      style={{ background: 'transparent' }}
-    >
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={onNodeClick}
-        onNodeDragStop={onNodeDragStop}
-        onPaneClick={onPaneClick}
-        onEdgeClick={onEdgeClick}
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        onInit={onInit}
-        nodeTypes={nodeTypes}
-        fitView
-        className="bg-gray-50 dark:bg-gray-900"
-        minZoom={0.5}
-        maxZoom={2}
-        snapToGrid={true}
-        snapGrid={[15, 15]}
-        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-        nodesDraggable={true}
-        nodesConnectable={true}
-        isValidConnection={isValidConnection}
-        connectionLineStyle={{ 
-          stroke: '#3b82f6', 
-          strokeWidth: 3,
-          strokeDasharray: '5,5'
-        }}
-        connectionLineType="bezier"
-        connectionRadius={20}
+    <>
+      <div 
+        ref={reactFlowWrapper}
+        className="w-full h-full relative"
+        style={{ background: 'transparent' }}
       >
-        <Background 
-          color="#d1d5db" 
-          gap={24} 
-          size={1}
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onNodeDragStop={onNodeDragStop}
+          onPaneClick={onPaneClick}
+          onEdgeClick={onEdgeClick}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onInit={onInit}
+          nodeTypes={nodeTypes}
+          fitView
           className="bg-gray-50 dark:bg-gray-900"
-        />
-        <Controls 
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg"
-          showInteractive={false}
-          position="bottom-right"
-        />
-        <MiniMap 
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg"
-          nodeColor="#3b82f6"
-          maskColor="rgba(0,0,0,0.05)"
-          position="bottom-left"
-        />
-      </ReactFlow>
-    </div>
+          minZoom={0.5}
+          maxZoom={2}
+          snapToGrid={true}
+          snapGrid={[15, 15]}
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          nodesDraggable={true}
+          nodesConnectable={true}
+          isValidConnection={isValidConnection}
+          connectionLineStyle={{ 
+            stroke: '#3b82f6', 
+            strokeWidth: 3,
+            strokeDasharray: '5,5'
+          }}
+          connectionLineType="bezier"
+          connectionRadius={20}
+        >
+          <Background 
+            color="#d1d5db" 
+            gap={24} 
+            size={1}
+            className="bg-gray-50 dark:bg-gray-900"
+          />
+          <Controls 
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg"
+            showInteractive={false}
+            position="bottom-right"
+          />
+          <MiniMap 
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg"
+            nodeColor="#3b82f6"
+            maskColor="rgba(0,0,0,0.05)"
+            position="bottom-left"
+          />
+        </ReactFlow>
+      </div>
+      
+      {/* Render the confirmation dialog */}
+      {ConfirmComponent}
+    </>
   );
 });
 
