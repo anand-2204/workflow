@@ -4,7 +4,7 @@ import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
 import { PropertiesPanel } from '../components/PropertiesPanel';
 import { 
-  GitBranch, Trash2, PlayCircle,
+  GitBranch, PlayCircle,
   Download, Upload, Undo2, Redo2, ZoomIn, ZoomOut,
   ChevronDown
 } from 'lucide-react';
@@ -29,34 +29,7 @@ export default function Editor() {
   const { confirm, ConfirmComponent } = useConfirm();
   const { showWorkflowError, showWorkflowSuccess, showWorkflowWarning, showWorkflowInfo } = useCustomAlert();
 
-  // Clear canvas with confirmation
-  const clearCanvas = useCallback(async () => {
-    if (nodes.length === 0) return;
-    
-    const confirmed = await confirm({
-      title: 'Clear Canvas',
-      message: 'Are you sure you want to clear all nodes? This action cannot be undone.',
-      confirmText: 'Clear All',
-      cancelText: 'Cancel',
-      type: 'danger',
-    });
-
-    if (confirmed) {
-      canvasRef.current?.clearCanvas?.();
-      setNodes([]);
-      setSelectedNode(null);
-      setShowProperties(false);
-      setEmailLogs([]);
-      setCanUndo(false);
-      setCanRedo(false);
-      localStorage.removeItem('workflowNodes');
-      setTimeout(() => {
-        canvasRef.current?.clearCanvas?.();
-      }, 0);
-      showWorkflowInfo('Canvas cleared successfully');
-    }
-  }, [nodes, confirm, showWorkflowInfo]);
-
+  
   // Initialize EmailJS
   useEffect(() => {
     try {
@@ -434,13 +407,7 @@ export default function Editor() {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-          <button 
-            onClick={clearCanvas}
-            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
-            title="Clear canvas"
-          >
-            <Trash2 size={16} />
-          </button>
+         
         </div>
         <Sidebar onAddNode={() => {}} />
       </aside>

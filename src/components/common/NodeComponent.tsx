@@ -1,6 +1,6 @@
 import React,{ useState } from 'react';
 import { Handle, Position } from 'reactflow';
-import { X, CheckCircle, AlertCircle, Loader2, Settings } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Loader2, Settings, Trash2 } from 'lucide-react';
 import type { NodeData } from '../../types/node.types';
 
 interface NodeComponentProps {
@@ -113,11 +113,12 @@ export const NodeComponent = ({ data, selected, id, isConnectable = true }: Node
         className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:scale-110 transform transition-all z-10"
         title="Delete node"
       >
-        <X size={14} />
+        
+        <Trash2  size={14} />
       </button>
 
       {/* Configuration Button */}
-      {data.onConfigChange && (
+      {/* {data.onConfigChange && (
         <button
           onClick={handleConfigClick}
           className={`absolute -top-2 -left-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-500 hover:bg-gray-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:scale-110 transform transition-all z-10 ${showConfig ? 'opacity-100' : ''}`}
@@ -125,7 +126,20 @@ export const NodeComponent = ({ data, selected, id, isConnectable = true }: Node
         >
           <Settings size={14} />
         </button>
-      )}
+      )} */}
+
+
+        {data.onConfigChange && data.config && Object.keys(data.config).length > 0 && (
+          <button
+            onClick={handleConfigClick}
+            className={`absolute -top-2 -left-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-500 hover:bg-gray-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:scale-110 transform transition-all z-10 ${showConfig ? 'opacity-100' : ''}`}
+            title="Configure node"
+          >
+            <Settings size={14} />
+          </button>
+        )}
+
+
 
       {/* ============ INCOMING HANDLE (LEFT) ============ */}
       {/* Only show for regular nodes and End nodes - NOT for Start nodes */}
