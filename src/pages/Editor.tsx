@@ -1,62 +1,176 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Node } from 'reactflow';
+
+import React, { useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import type { Node, Edge, Connection } from 'reactflow';
+import {
+  GitBranch, PlayCircle, Download, Upload, Undo2, Redo2,
+  ZoomIn, ZoomOut, ChevronDown, Save, Loader2, X
+} from 'lucide-react';
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
 import { PropertiesPanel } from '../components/PropertiesPanel';
-import { 
-  GitBranch, PlayCircle,
-  Download, Upload, Undo2, Redo2, ZoomIn, ZoomOut,
-  ChevronDown
-} from 'lucide-react';
-import { initEmailJS, sendEmail } from '../services/mailService';
-import { useConfirm } from '../hooks/useConfirm';
-import { useCustomAlert } from '../hooks/useAlert';
+import { useWorkflowEditor } from '../hooks/useWorkflowEditor';
+import { useToast } from '../hooks/useToast';
 
 export default function Editor() {
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const [showProperties, setShowProperties] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [zoom, setZoom] = useState(100);
-  const [emailLogs, setEmailLogs] = useState<string[]>([]);
-  const [showLogs, setShowLogs] = useState(false);
+  const { workflowId } = useParams<{ workflowId: string }>();
+  const navigate = useNavigate();
+  const { toasts, showToast, removeToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const canvasRef = useRef<any>(null);
 
-  // Use the hooks
-  const { confirm, ConfirmComponent } = useConfirm();
-  const { showWorkflowError, showWorkflowSuccess, showWorkflowWarning, showWorkflowInfo } = useCustomAlert();
+  const {
+    nodes,
+    setNodes,
+    edges,
+    setEdges,
+    selectedNode,
+    setSelectedNode,
+    workflow,
+    isLoading,
+    isSaving,
+    isExecuting,
+    isDirty,
+    emailLogs,
+    setEmailLogs,
+    showLogs,
+    setShowLogs,
+    canUndo,
+    setCanUndo,
+    canRedo,
+    setCanRedo,
+    zoom,
+    setZoom,
+    canvasRef,
+    saveWorkflow,
+    executeWorkflow,
+    updateWorkflowMeta,
+  } = useWorkflowEditor(workflowId ? parseInt(workflowId) : undefined);
 
-  
-  // Initialize EmailJS
-  useEffect(() => {
-    try {
-      initEmailJS();
-    } catch (error) {
-      console.error('EmailJS initialization failed:', error);
-    }
+  const onNodesChange = useCallback((changes: any) => {
+    // Handle node changes
   }, []);
 
-  // Load saved nodes from localStorage
-  useEffect(() => {
-    const savedNodes = localStorage.getItem('workflowNodes');
-    if (savedNodes) {
+  const onEdgesChange = useCallback((changes: any) => {
+    // Handle edge changes
+  }, []);
+
+  const onConnect = useCallback((connection: Connection) => {
+    setEdges((eds: Edge[]) => {
+      const newEdge: Edge = {
+        id: `edge-${Date.now()}`,
+        source: connection.source!,
+        target: connection.target!,
+        animated: true,
+      };
+      return [...eds, newEdge];
+    });
+  }, [setEdges]);
+
+  const updateNodeProperties = useCallback((newData: any) => {
+    if (!selectedNode) return;
+    
+    setNodes((prev: Node[]) => 
+      prev.map((node: Node) => 
+        node.id === selectedNode.id 
+          ? { ...node, data: { ...node.data, ...newData } }
+          : node
+      )
+    );
+    
+    setSelectedNode((prev: Node | null) => 
+      prev ? { ...prev, data: { ...prev.data, ...newData } } : null
+    );
+  }, [selectedNode, setNodes, setSelectedNode]);
+
+  const closeProperties = useCallback(() => {
+    setSelectedNode(null);
+  }, [setSelectedNode]);
+
+  const exportWorkflow = useCallback(() => {
+    if (!workflow) {
+      showToast('warning', 'No workflow to export');
+      return;
+    }
+
+    const exportData = {
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description,
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+      nodes: nodes.map((node: Node) => ({
+        ...node,
+        data: { ...node.data, status: undefined, result: undefined, error: undefined }
+      })),
+      edges,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `workflow-${workflow.name.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    showToast('success', 'Workflow exported successfully');
+  }, [workflow, nodes, edges, showToast]);
+
+  const importWorkflow = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
       try {
-        const parsed = JSON.parse(savedNodes);
-        setNodes(parsed);
-      } catch (e) {
-        console.error('Error loading saved nodes:', e);
+        const data = JSON.parse(e.target?.result as string);
+        
+        if (data.nodes && Array.isArray(data.nodes)) {
+          setNodes(data.nodes);
+          setEdges(data.edges || []);
+          
+          if (data.name) {
+            updateWorkflowMeta({ name: data.name, description: data.description });
+          }
+          
+          showToast('success', `Imported workflow with ${data.nodes.length} nodes`);
+        } else {
+          showToast('error', 'Invalid workflow file format');
+        }
+      } catch (error) {
+        showToast('error', 'Failed to import workflow');
+        console.error('Import error:', error);
       }
-    }
-  }, []);
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [setNodes, setEdges, updateWorkflowMeta, showToast]);
 
-  // Undo/Redo handlers
-  const handleUndoRedoChange = useCallback((undo: boolean, redo: boolean) => {
-    setCanUndo(undo);
-    setCanRedo(redo);
-  }, []);
+  const handleZoomIn = useCallback(() => {
+    canvasRef.current?.zoomIn?.();
+    requestAnimationFrame(() => {
+      const zoom = canvasRef.current?.getZoom?.() || 1;
+      setZoom(Math.round(zoom * 100));
+    });
+  }, [setZoom]);
+
+  const handleZoomOut = useCallback(() => {
+    canvasRef.current?.zoomOut?.();
+    requestAnimationFrame(() => {
+      const zoom = canvasRef.current?.getZoom?.() || 1;
+      setZoom(Math.round(zoom * 100));
+    });
+  }, [setZoom]);
+
+  const handleZoomReset = useCallback(() => {
+    canvasRef.current?.zoomReset?.();
+    requestAnimationFrame(() => {
+      const zoom = canvasRef.current?.getZoom?.() || 1;
+      setZoom(Math.round(zoom * 100));
+    });
+  }, [setZoom]);
 
   const handleUndo = useCallback(() => {
     canvasRef.current?.undo?.();
@@ -65,7 +179,7 @@ export default function Editor() {
       setCanUndo(state.canUndo);
       setCanRedo(state.canRedo);
     }
-  }, []);
+  }, [setCanUndo, setCanRedo]);
 
   const handleRedo = useCallback(() => {
     canvasRef.current?.redo?.();
@@ -74,327 +188,49 @@ export default function Editor() {
       setCanUndo(state.canUndo);
       setCanRedo(state.canRedo);
     }
-  }, []);
+  }, [setCanUndo, setCanRedo]);
 
-  // Node properties
-  const updateNodeProperties = useCallback((newData: any) => {
-    if (!selectedNode) return;
-    
-    setNodes(prev => prev.map(node => 
-      node.id === selectedNode.id 
-        ? { ...node, data: { ...node.data, ...newData } }
-        : node
-    ));
-    
-    setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...newData } } : null);
-  }, [selectedNode]);
+  const handleUndoRedoChange = useCallback((undo: boolean, redo: boolean) => {
+    setCanUndo(undo);
+    setCanRedo(redo);
+  }, [setCanUndo, setCanRedo]);
 
-  const closeProperties = useCallback(() => {
-    setShowProperties(false);
-    setSelectedNode(null);
-  }, []);
-
-  // Log email details
-  const logEmail = useCallback((type: string, details: any) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `[${timestamp}] ${type}: ${JSON.stringify(details, null, 2)}`;
-    setEmailLogs(prev => [...prev, logEntry]);
-  }, []);
-
-  // Execute a single node
-  const executeNode = useCallback(async (node: Node) => {
-    const nodeType = node.data?.type || 
-                     node.data?.label?.toLowerCase() || 
-                     node.type || 
-                     '';
-    
-    if (nodeType === 'start' || nodeType === 'end' || 
-        node.data?.label === 'Start' || node.data?.label === 'End') {
-      return { success: true, skipped: true };
-    }
-
-    setNodes(prev => prev.map(n => 
-      n.id === node.id 
-        ? { ...n, data: { ...n.data, status: 'running' as const } }
-        : n
-    ));
-
-    try {
-      let result;
-      const config = node.data?.config || {};
-
-      logEmail(`EXECUTING ${nodeType.toUpperCase()} NODE`, {
-        nodeId: node.id,
-        nodeLabel: node.data?.label,
-        nodeType: nodeType,
-        config: config
-      });
-
-      switch (nodeType) {
-        case 'email': {
-          const { to, subject, message, fromName } = config;
-          
-          if (!to || !subject || !message) {
-            const error = `Missing required fields: ${!to ? 'To' : ''} ${!subject ? 'Subject' : ''} ${!message ? 'Message' : ''}`;
-            logEmail('EMAIL ERROR', { error, config });
-            throw new Error(error);
-          }
-          
-          result = await sendEmail(to, subject, message, fromName || 'Workflow Editor');
-          
-          if (!result.success) {
-            logEmail('EMAIL FAILED', { error: result.error });
-            throw new Error(result.error || 'Failed to send email');
-          }
-          
-          break;
-        }
-        
-        case 'whatsapp':
-        case 'message': {
-          const { phoneNumber, message } = config;
-          if (!phoneNumber || !message) throw new Error('WhatsApp configuration incomplete');
-          const cleanNumber = phoneNumber.replace(/\D/g, '');
-          const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-          window.open(url, '_blank');
-          result = { success: true };
-          break;
-        }
-        
-        case 'http': {
-          const { url, method = 'GET', headers } = config;
-          if (!url) throw new Error('HTTP URL is required');
-          
-          const fetchOptions: RequestInit = { 
-            method,
-            headers: headers ? JSON.parse(headers) : {},
-          };
-          
-          const response = await fetch(url, fetchOptions);
-          
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          
-          result = await response.json();
-          break;
-        }
-        
-        case 'webhook': {
-          const { url, method = 'POST', headers } = config;
-          if (!url) throw new Error('Webhook URL is required');
-          
-          const response = await fetch(url, { 
-            method, 
-            headers: headers ? JSON.parse(headers) : undefined 
-          });
-          result = await response.json();
-          break;
-        }
-        
-        case 'database': {
-          // const { query: _query } = config; 
-          result = { success: true, message: 'Query executed' };
-          break;
-        }
-        
-        case 'function': {
-          const { code } = config;
-          result = { success: true, message: 'Function executed', code };
-          break;
-        }
-        
-        default: {
-          await new Promise(resolve => setTimeout(resolve, 500));
-          result = { success: true, message: `Executed ${nodeType || 'unknown'} node` };
-        }
-      }
-
-      setNodes(prev => prev.map(n => 
-        n.id === node.id 
-          ? { ...n, data: { ...n.data, status: 'success' as const, result } }
-          : n
-      ));
-      
-      logEmail(`${nodeType.toUpperCase()} NODE COMPLETED`, { result });
-      return result;
-    } catch (error: any) {
-      logEmail(`${nodeType.toUpperCase()} NODE FAILED`, { 
-        error: error.message,
-        config: node.data?.config
-      });
-      setNodes(prev => prev.map(n => 
-        n.id === node.id 
-          ? { ...n, data: { ...n.data, status: 'error' as const, error: error.message } }
-          : n
-      ));
-      throw error;
-    }
-  }, [logEmail]);
-
-  // Execute workflow
-  const executeWorkflow = useCallback(async () => {
-    if (nodes.length === 0) {
-      showWorkflowWarning('No nodes to execute!');
-      return;
-    }
-
-    const startNode = nodes.find(n => n.type === 'start' || n.data?.label === 'Start');
-    if (!startNode) {
-      showWorkflowError('No start node found! Please add a Start node to begin your workflow.');
-      return;
-    }
-
-    setEmailLogs([]);
-    logEmail('WORKFLOW EXECUTION STARTED', { 
-      totalNodes: nodes.length,
-      timestamp: new Date().toISOString()
-    });
-
-    setIsExecuting(true);
-
-    setNodes(prev => prev.map(node => ({
-      ...node,
-      data: { ...node.data, status: 'idle' as const }
-    })));
-
-    try {
-      const executableNodes = nodes.filter(node => {
-        const nodeType = node.data?.type || node.type || '';
-        return nodeType !== 'start' && nodeType !== 'end' && 
-               node.data?.label !== 'Start' && node.data?.label !== 'End';
-      });
-
-      for (let i = 0; i < executableNodes.length; i++) {
-        const node = executableNodes[i];
-        await executeNode(node);
-      }
-      
-      const endNode = nodes.find(n => n.type === 'end' || n.data?.label === 'End');
-      if (endNode) {
-        setNodes(prev => prev.map(n => 
-          n.id === endNode.id 
-            ? { ...n, data: { ...n.data, status: 'success' as const } }
-            : n
-        ));
-      }
-      
-      logEmail('WORKFLOW EXECUTION COMPLETED', { 
-        timestamp: new Date().toISOString(),
-        executedNodes: executableNodes.length
-      });
-      
-      showWorkflowSuccess('Workflow executed successfully! Check the logs for details.');
-    } catch (error: any) {
-      logEmail('WORKFLOW EXECUTION FAILED', { 
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-      showWorkflowError(`${error.message || 'Unknown error'}\n\nCheck logs for details.`);
-    } finally {
-      setIsExecuting(false);
-    }
-  }, [nodes, executeNode, logEmail, showWorkflowError, showWorkflowSuccess, showWorkflowWarning]);
-
-  // Export/Import
-  const exportWorkflow = useCallback(() => {
-    const workflow = {
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
-      nodes: nodes.map(node => ({ ...node, data: { ...node.data, status: undefined } })),
-    };
-    const blob = new Blob([JSON.stringify(workflow, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `workflow-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }, [nodes]);
-
-  const importWorkflow = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const workflow = JSON.parse(e.target?.result as string);
-        if (workflow.nodes && Array.isArray(workflow.nodes)) {
-          if (window.confirm(`Import workflow with ${workflow.nodes.length} nodes?`)) {
-            setNodes(workflow.nodes);
-            localStorage.setItem('workflowNodes', JSON.stringify(workflow.nodes));
-            setShowProperties(false);
-            setSelectedNode(null);
-            setEmailLogs([]);
-          }
-        } else {
-          alert('Invalid workflow file format');
-        }
-      } catch (error) {
-        alert('Error reading workflow file');
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }, []);
-
-  // Zoom handlers
-  const handleZoomIn = useCallback(() => {
-    canvasRef.current?.zoomIn?.();
-    requestAnimationFrame(() => {
-      const zoom = canvasRef.current?.getZoom?.() || 1;
-      setZoom(Math.round(zoom * 100));
-    });
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    canvasRef.current?.zoomOut?.();
-    requestAnimationFrame(() => {
-      const zoom = canvasRef.current?.getZoom?.() || 1;
-      setZoom(Math.round(zoom * 100));
-    });
-  }, []);
-
-  const handleZoomReset = useCallback(() => {
-    canvasRef.current?.zoomReset?.();
-    requestAnimationFrame(() => {
-      const zoom = canvasRef.current?.getZoom?.() || 1;
-      setZoom(Math.round(zoom * 100));
-    });
-  }, []);
-
-  // Update zoom state
-  const updateZoomState = useCallback(() => {
-    const zoom = canvasRef.current?.getZoom?.() || 1;
-    setZoom(Math.round(zoom * 100));
-  }, []);
-
-  // Listen for zoom changes from React Flow
-  useEffect(() => {
-    const timer = setTimeout(updateZoomState, 300);
-    return () => clearTimeout(timer);
-  }, [updateZoomState]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-      
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndo(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
-      if (e.key === 'Escape' && showProperties) closeProperties();
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, showProperties, closeProperties]);
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
+          <p className="text-gray-600">Loading workflow...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
+      {/* Toast Notifications */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-md animate-slide-in ${
+              toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' :
+              toast.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
+              toast.type === 'warning' ? 'bg-yellow-50 border border-yellow-200 text-yellow-800' :
+              'bg-blue-50 border border-blue-200 text-blue-800'
+            }`}
+          >
+            <span className="flex-1 text-sm">{toast.message}</span>
+            <button
+              onClick={() => removeToast(toast.id)}
+              className="ml-4 hover:opacity-70"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* Sidebar */}
       <aside className="w-[320px] min-w-[320px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
         <div className="px-4 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-gray-50 to-transparent">
@@ -407,7 +243,6 @@ export default function Editor() {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-         
         </div>
         <Sidebar onAddNode={() => {}} />
       </aside>
@@ -416,16 +251,51 @@ export default function Editor() {
       <main className="flex-1 flex flex-col overflow-hidden bg-gray-50">
         {/* Header */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center px-6 flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <h1 className="text-base font-medium text-gray-800">Workflow Editor</h1>
-            {nodes.length > 0 && (
-              <span className="text-xs bg-gray-100 px-2.5 py-1 rounded-full text-gray-600 font-medium">
-                {nodes.length} node{nodes.length > 1 ? 's' : ''}
+          <div className="flex items-center gap-4 flex-1">
+            <input
+              type="text"
+              value={workflow?.name || ''}
+              onChange={(e) => updateWorkflowMeta({ name: e.target.value })}
+              className="text-base font-medium bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 outline-none transition-colors px-1 min-w-[200px]"
+              placeholder="Workflow Name"
+            />
+            {isDirty && (
+              <span className="text-xs text-yellow-600 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+                Unsaved
+              </span>
+            )}
+            {isSaving && (
+              <span className="text-xs text-blue-600 flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Saving...
               </span>
             )}
           </div>
           
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={saveWorkflow}
+              disabled={isSaving || !isDirty}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Save
+            </button>
+
+            <button
+              onClick={executeWorkflow}
+              disabled={nodes.length === 0 || isExecuting || !workflow?.id}
+              className={`px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isExecuting ? 'animate-pulse' : ''
+              }`}
+            >
+              <PlayCircle size={14} className={isExecuting ? 'animate-spin' : ''} />
+              {isExecuting ? 'Running...' : 'Run'}
+            </button>
+
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
             <button onClick={handleUndo} disabled={!canUndo} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 disabled:opacity-50 transition-colors" title="Undo (Ctrl+Z)">
               <Undo2 size={16} />
             </button>
@@ -458,17 +328,6 @@ export default function Editor() {
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
             <button 
-              onClick={executeWorkflow}
-              disabled={nodes.length === 0 || isExecuting}
-              className={`px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed ${
-                isExecuting ? 'animate-pulse' : ''
-              }`}
-            >
-              <PlayCircle size={14} className={isExecuting ? 'animate-spin' : ''} />
-              {isExecuting ? 'Running...' : 'Run Workflow'}
-            </button>
-
-            <button 
               onClick={() => setShowLogs(!showLogs)}
               className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${showLogs ? 'bg-gray-100 text-blue-600' : 'text-gray-500'}`}
               title="Toggle Logs"
@@ -486,18 +345,22 @@ export default function Editor() {
                 ref={canvasRef}
                 nodes={nodes} 
                 setNodes={setNodes}
+                edges={edges}
+                setEdges={setEdges}
                 selectedNode={selectedNode}
                 setSelectedNode={(node) => {
                   setSelectedNode(node);
-                  setShowProperties(!!node);
                 }}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
                 onUndoRedoChange={handleUndoRedoChange}
                 onNodeConfigChange={() => {}}
               />
             </div>
 
             {/* Logs Panel */}
-            {showLogs && emailLogs.length > 0 && (
+            {showLogs && (
               <div className="h-48 bg-gray-900 border-t border-gray-700 overflow-y-auto flex-shrink-0">
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -514,12 +377,16 @@ export default function Editor() {
                       Clear
                     </button>
                   </div>
-                  <div className="space-y-0.5 font-mono text-xs">
-                    {emailLogs.map((log, index) => (
-                      <div key={index} className="text-gray-300 hover:bg-gray-800/50 px-2 py-0.5 rounded">
-                        {log}
-                      </div>
-                    ))}
+                  <div className="space-y-0.5 font-mono text-xs max-h-[calc(100%-2rem)] overflow-y-auto">
+                    {emailLogs.length === 0 ? (
+                      <div className="text-gray-500 italic">No logs yet. Run the workflow to see execution logs.</div>
+                    ) : (
+                      emailLogs.map((log, index) => (
+                        <div key={index} className="text-gray-300 hover:bg-gray-800/50 px-2 py-0.5 rounded">
+                          {log}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -527,7 +394,7 @@ export default function Editor() {
           </div>
 
           {/* Properties Panel */}
-          {showProperties && selectedNode && (
+          {selectedNode && (
             <PropertiesPanel 
               node={selectedNode}
               onUpdate={updateNodeProperties}
@@ -536,9 +403,6 @@ export default function Editor() {
           )}
         </div>
       </main>
-
-      {/* Confirm Dialog - Rendered at the end */}
-      {ConfirmComponent}
     </div>
   );
 }

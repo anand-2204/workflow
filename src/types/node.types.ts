@@ -23,17 +23,29 @@ export interface NodeConfig {
 
 export interface NodeData {
   label: string;
-  type: string;
-  description: string;
-  icon: ReactNode;
-  bgColor: string;
-  iconColor: string;
-  status?: 'idle' | 'running' | 'success' | 'error';
+  type?: string;
+  description?: string;
+  icon?: React.ReactNode;
+  bgColor?: string;
+  iconColor?: string;
   config?: Record<string, any>;
-  onDelete?: (nodeId: string) => void;
-  onConfigChange?: (nodeId: string, config: Record<string, any>) => void;
+  status?: 'idle' | 'running' | 'success' | 'error';
+  result?: any;
+  error?: string;
+  onDelete?: (id: string) => void;
+  onConfigChange?: (id: string, config: Record<string, any>) => void;
 }
 
+export interface NodeDefinition {
+  type: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  bgColor: string;
+  iconColor: string;
+  defaultConfig: Record<string, any>;
+  category: string;
+}
 export type CustomNode = ReactFlowNode<NodeData>;
 
 export interface NodeCategoryMap {
