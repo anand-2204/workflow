@@ -1,8 +1,7 @@
 // api/workflowApi.ts
 import axios from 'axios';
 
-// Use relative URL - will be proxied by Vite
-const API_BASE_URL = '/api/Workflow'; // Capital W matches controller name
+const API_BASE_URL = '/api'; 
 
 export interface WorkflowData {
   nodes: any[];
@@ -19,6 +18,12 @@ export interface Workflow {
   createdAt: string;
   updatedAt?: string;
   data?: WorkflowData;
+  // Schedule fields
+  isScheduled?: boolean;
+  scheduledDateTime?: string;
+  recurrenceType?: string;
+  nextRunTime?: string;
+  lastRunTime?: string;
 }
 
 export interface WorkflowExecution {
@@ -165,9 +170,45 @@ export interface CleanupExecutionResult {
   message: string;
 }
 
+// Schedule Types
+export interface ScheduleWorkflowRequest {
+  workflowId: number;
+  scheduledDateTime: string;
+  recurrenceType: string;
+  cronExpression?: string;
+}
+
+export interface ScheduleWorkflowResponse {
+  success: boolean;
+  data?: {
+    scheduleId: number;
+    workflowId: number;
+    workflowName: string;
+    scheduledDateTime: string;
+    recurrenceType: string;
+    nextRunTime: string;
+    status: string;
+  };
+  message?: string;
+}
+
+export interface ScheduledWorkflow {
+  id: number;
+  name: string;
+  scheduledDateTime: string;
+  recurrenceType: string;
+  nextRunTime: string;
+  isScheduled: boolean;
+}
+
+export interface ScheduledWorkflowsResponse {
+  success: boolean;
+  data: ScheduledWorkflow[];
+}
+
 // Create axios instance with default config
 const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Accept': 'application/json',
     'Content-Type': 'application/json'
@@ -379,6 +420,44 @@ export const workflowApi = {
     }
   },
 
+  // ============ SCHEDULING ============
+  // POST /api/Workflow/schedule
+  schedule: async (data: ScheduleWorkflowRequest): Promise<ScheduleWorkflowResponse> => {
+    try {
+      console.log('📡 Scheduling workflow:', data);
+      const response = await apiClient.post('/Workflow/schedule', data);
+      console.log('✅ Schedule response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error scheduling workflow:', error);
+      throw error;
+    }
+  },
+
+  // GET /api/Workflow/scheduled
+  getScheduled: async (): Promise<ScheduledWorkflowsResponse> => {
+    try {
+      const response = await apiClient.get('/Workflow/scheduled');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error getting scheduled workflows:', error);
+      throw error;
+    }
+  },
+
+  // DELETE /api/Workflow/schedule/{id}
+  cancelSchedule: async (workflowId: number): Promise<{ success: boolean; message: string }> => {
+    try {
+      console.log(`📡 Cancelling schedule for workflow ${workflowId}`);
+      const response = await apiClient.delete(`/Workflow/schedule/${workflowId}`);
+      console.log('✅ Cancel schedule response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error(`❌ Error cancelling schedule for workflow ${workflowId}:`, error);
+      throw error;
+    }
+  },
+
   // ============ CLEANUP ============
 
   cleanupExecution: async (id: number): Promise<CleanupExecutionResult> => {
@@ -436,10 +515,8 @@ export const workflowApi = {
         const status = await workflowApi.getStatus(id);
         console.log(`📊 Poll ${attempts}: Status = ${status.status}, Progress = ${status.progress}%`);
         
-        // Call the status update callback
         onStatusUpdate(status);
         
-        // Check if execution is complete
         const isComplete = 
           status.status === 'idle' ||
           status.status === 'completed' ||
@@ -452,14 +529,12 @@ export const workflowApi = {
           return;
         }
         
-        // Check max attempts
         if (attempts >= maxAttempts) {
           isPolling = false;
           onError(new Error(`Polling timeout after ${maxAttempts} attempts`));
           return;
         }
         
-        // Schedule next poll
         timeoutId = setTimeout(poll, interval);
         
       } catch (error) {
@@ -469,10 +544,8 @@ export const workflowApi = {
       }
     };
 
-    // Start polling
     poll();
 
-    // Return cleanup function
     return () => {
       isPolling = false;
       if (timeoutId) {
