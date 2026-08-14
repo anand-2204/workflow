@@ -6,4 +6,15 @@ export default defineConfig({
   css: {
     postcss: './postcss.config.js',
   },
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5081', 
+        changeOrigin: true,
+        secure: false,
+        
+      }
+    }
+  }
 })

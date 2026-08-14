@@ -1,10 +1,11 @@
-
-import React, { useCallback, useRef } from 'react';
+// Editor.tsx - Clean Production Version
+import React, { useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Node, Edge, Connection } from 'reactflow';
 import {
   GitBranch, PlayCircle, Download, Upload, Undo2, Redo2,
-  ZoomIn, ZoomOut, ChevronDown, Save, Loader2, X
+  ZoomIn, ZoomOut, ChevronDown, Save, Loader2, X,
+  Pause, Square, RefreshCw, CirclePlay, CircleStop
 } from 'lucide-react';
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
@@ -29,7 +30,9 @@ export default function Editor() {
     isLoading,
     isSaving,
     isExecuting,
+    isPaused,
     isDirty,
+    setIsDirty,
     emailLogs,
     setEmailLogs,
     showLogs,
@@ -41,31 +44,47 @@ export default function Editor() {
     zoom,
     setZoom,
     canvasRef,
+    executionId,
+    executionProgress,
+    executionStatus,
     saveWorkflow,
     executeWorkflow,
+    pauseExecution,
+    resumeExecution,
+    cancelExecution,
+    cleanupExecution,
     updateWorkflowMeta,
+    loadWorkflow,
   } = useWorkflowEditor(workflowId ? parseInt(workflowId) : undefined);
 
-  const onNodesChange = useCallback((changes: any) => {
-    // Handle node changes
-  }, []);
+  // Load workflow when ID changes
+  useEffect(() => {
+    if (workflowId) {
+      loadWorkflow(parseInt(workflowId));
+    }
+  }, [workflowId, loadWorkflow]);
 
-  const onEdgesChange = useCallback((changes: any) => {
-    // Handle edge changes
-  }, []);
-
+  // ============ ON CONNECT ============
   const onConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+    
     setEdges((eds: Edge[]) => {
       const newEdge: Edge = {
-        id: `edge-${Date.now()}`,
+        id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
         source: connection.source!,
         target: connection.target!,
+        sourceHandle: connection.sourceHandle || null,
+        targetHandle: connection.targetHandle || null,
         animated: true,
+        style: { stroke: '#3b82f6', strokeWidth: 2 },
       };
+      
+      setIsDirty(true);
       return [...eds, newEdge];
     });
-  }, [setEdges]);
+  }, [setEdges, setIsDirty]);
 
+  // ============ UPDATE NODE PROPERTIES ============
   const updateNodeProperties = useCallback((newData: any) => {
     if (!selectedNode) return;
     
@@ -80,12 +99,15 @@ export default function Editor() {
     setSelectedNode((prev: Node | null) => 
       prev ? { ...prev, data: { ...prev.data, ...newData } } : null
     );
-  }, [selectedNode, setNodes, setSelectedNode]);
+    
+    setIsDirty(true);
+  }, [selectedNode, setNodes, setSelectedNode, setIsDirty]);
 
   const closeProperties = useCallback(() => {
     setSelectedNode(null);
   }, [setSelectedNode]);
 
+  // ============ EXPORT ============
   const exportWorkflow = useCallback(() => {
     if (!workflow) {
       showToast('warning', 'No workflow to export');
@@ -102,7 +124,7 @@ export default function Editor() {
         ...node,
         data: { ...node.data, status: undefined, result: undefined, error: undefined }
       })),
-      edges,
+      edges: edges,
     };
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -118,6 +140,7 @@ export default function Editor() {
     showToast('success', 'Workflow exported successfully');
   }, [workflow, nodes, edges, showToast]);
 
+  // ============ IMPORT ============
   const importWorkflow = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -130,12 +153,13 @@ export default function Editor() {
         if (data.nodes && Array.isArray(data.nodes)) {
           setNodes(data.nodes);
           setEdges(data.edges || []);
+          setIsDirty(true);
           
           if (data.name) {
             updateWorkflowMeta({ name: data.name, description: data.description });
           }
           
-          showToast('success', `Imported workflow with ${data.nodes.length} nodes`);
+          showToast('success', `Imported ${data.nodes.length} nodes and ${data.edges?.length || 0} edges`);
         } else {
           showToast('error', 'Invalid workflow file format');
         }
@@ -146,8 +170,9 @@ export default function Editor() {
     };
     reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [setNodes, setEdges, updateWorkflowMeta, showToast]);
+  }, [setNodes, setEdges, updateWorkflowMeta, showToast, setIsDirty]);
 
+  // ============ ZOOM CONTROLS ============
   const handleZoomIn = useCallback(() => {
     canvasRef.current?.zoomIn?.();
     requestAnimationFrame(() => {
@@ -172,6 +197,7 @@ export default function Editor() {
     });
   }, [setZoom]);
 
+  // ============ UNDO/REDO ============
   const handleUndo = useCallback(() => {
     canvasRef.current?.undo?.();
     const state = canvasRef.current?.getState?.();
@@ -194,6 +220,29 @@ export default function Editor() {
     setCanUndo(undo);
     setCanRedo(redo);
   }, [setCanUndo, setCanRedo]);
+
+  // ============ STATUS HELPERS ============
+  const getExecutionStatusColor = () => {
+    switch (executionStatus) {
+      case 'running': return 'text-blue-600 bg-blue-50 border-blue-200';
+      case 'completed': return 'text-green-600 bg-green-50 border-green-200';
+      case 'failed': return 'text-red-600 bg-red-50 border-red-200';
+      case 'paused': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+      case 'cancelled': return 'text-gray-600 bg-gray-50 border-gray-200';
+      default: return '';
+    }
+  };
+
+  const getExecutionStatusIcon = () => {
+    switch (executionStatus) {
+      case 'running': return <CirclePlay className="w-4 h-4 animate-pulse" />;
+      case 'completed': return <CirclePlay className="w-4 h-4" />;
+      case 'failed': return <CircleStop className="w-4 h-4" />;
+      case 'paused': return <Pause className="w-4 h-4" />;
+      case 'cancelled': return <CircleStop className="w-4 h-4" />;
+      default: return null;
+    }
+  };
 
   if (isLoading) {
     return (
@@ -221,10 +270,7 @@ export default function Editor() {
             }`}
           >
             <span className="flex-1 text-sm">{toast.message}</span>
-            <button
-              onClick={() => removeToast(toast.id)}
-              className="ml-4 hover:opacity-70"
-            >
+            <button onClick={() => removeToast(toast.id)} className="ml-4 hover:opacity-70">
               <X size={16} />
             </button>
           </div>
@@ -243,11 +289,12 @@ export default function Editor() {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
+          
         </div>
         <Sidebar onAddNode={() => {}} />
       </aside>
 
-      {/* Canvas area */}
+      {/* Canvas */}
       <main className="flex-1 flex flex-col overflow-hidden bg-gray-50">
         {/* Header */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center px-6 flex-shrink-0">
@@ -271,9 +318,12 @@ export default function Editor() {
                 Saving...
               </span>
             )}
+           
+            
           </div>
           
           <div className="flex items-center gap-1.5">
+            {/* Save Button */}
             <button
               onClick={saveWorkflow}
               disabled={isSaving || !isDirty}
@@ -283,19 +333,56 @@ export default function Editor() {
               Save
             </button>
 
-            <button
-              onClick={executeWorkflow}
-              disabled={nodes.length === 0 || isExecuting || !workflow?.id}
-              className={`px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                isExecuting ? 'animate-pulse' : ''
-              }`}
-            >
-              <PlayCircle size={14} className={isExecuting ? 'animate-spin' : ''} />
-              {isExecuting ? 'Running...' : 'Run'}
-            </button>
+            {/* Run Button */}
+            {!isExecuting ? (
+              <button
+                onClick={executeWorkflow}
+                disabled={nodes.length === 0 || !workflow?.id}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlayCircle size={14} />
+                Run
+              </button>
+            ) : (
+              <>
+                {/* Pause/Resume Button */}
+                <button
+                  onClick={isPaused ? resumeExecution : pauseExecution}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
+                    isPaused 
+                      ? 'bg-green-600 hover:bg-green-700 text-white'
+                      : 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                  }`}
+                >
+                  {isPaused ? <PlayCircle size={14} /> : <Pause size={14} />}
+                  {isPaused ? 'Resume' : 'Pause'}
+                </button>
+
+                {/* Cancel Button */}
+                <button
+                  onClick={cancelExecution}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
+                >
+                  <Square size={14} />
+                  Cancel
+                </button>
+
+                {/* Cleanup Button */}
+                <button
+                  onClick={cleanupExecution}
+                  className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
+                >
+                  <RefreshCw size={14} />
+                  Cleanup
+                </button>
+              </>
+            )}
+
+           
 
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
+            {/* Undo/Redo */}
             <button onClick={handleUndo} disabled={!canUndo} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 disabled:opacity-50 transition-colors" title="Undo (Ctrl+Z)">
               <Undo2 size={16} />
             </button>
@@ -305,6 +392,7 @@ export default function Editor() {
 
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
+            {/* Zoom Controls */}
             <button onClick={handleZoomOut} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Zoom Out">
               <ZoomOut size={16} />
             </button>
@@ -317,6 +405,7 @@ export default function Editor() {
 
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
+            {/* Export/Import */}
             <button onClick={exportWorkflow} disabled={nodes.length === 0} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 disabled:opacity-50 transition-colors" title="Export Workflow">
               <Download size={16} />
             </button>
@@ -327,6 +416,7 @@ export default function Editor() {
 
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
+            {/* Logs Toggle */}
             <button 
               onClick={() => setShowLogs(!showLogs)}
               className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${showLogs ? 'bg-gray-100 text-blue-600' : 'text-gray-500'}`}
@@ -336,6 +426,20 @@ export default function Editor() {
             </button>
           </div>
         </header>
+
+        {/* Progress Bar for Running Workflows */}
+        {isExecuting && (
+          <div className="h-1 bg-gray-200 w-full overflow-hidden">
+            <div 
+              className={`h-full transition-all duration-500 ${
+                executionStatus === 'failed' ? 'bg-red-500' :
+                executionStatus === 'paused' ? 'bg-yellow-500' :
+                'bg-blue-500'
+              }`}
+              style={{ width: `${executionProgress}%` }}
+            />
+          </div>
+        )}
 
         {/* Canvas + Properties + Logs */}
         <div className="flex-1 flex overflow-hidden">
@@ -348,14 +452,10 @@ export default function Editor() {
                 edges={edges}
                 setEdges={setEdges}
                 selectedNode={selectedNode}
-                setSelectedNode={(node) => {
-                  setSelectedNode(node);
-                }}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
+                setSelectedNode={setSelectedNode}
                 onUndoRedoChange={handleUndoRedoChange}
                 onNodeConfigChange={() => {}}
+                onConnect={onConnect}
               />
             </div>
 
@@ -369,23 +469,44 @@ export default function Editor() {
                       <span className="text-[10px] bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">
                         {emailLogs.length} entries
                       </span>
+                      {isExecuting && (
+                        <span className="text-[10px] text-blue-400 flex items-center gap-1">
+                          <Loader2 size={10} className="animate-spin" />
+                          Live
+                        </span>
+                      )}
                     </div>
-                    <button 
-                      onClick={() => setEmailLogs([])}
-                      className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                    >
-                      Clear
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {executionId && (
+                        <span className="text-[10px] text-gray-500">
+                          ID: {executionId.slice(0, 8)}...
+                        </span>
+                      )}
+                      <button 
+                        onClick={() => setEmailLogs([])}
+                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-0.5 font-mono text-xs max-h-[calc(100%-2rem)] overflow-y-auto">
                     {emailLogs.length === 0 ? (
                       <div className="text-gray-500 italic">No logs yet. Run the workflow to see execution logs.</div>
                     ) : (
-                      emailLogs.map((log, index) => (
-                        <div key={index} className="text-gray-300 hover:bg-gray-800/50 px-2 py-0.5 rounded">
-                          {log}
-                        </div>
-                      ))
+                      emailLogs.map((log, index) => {
+                        let logColor = 'text-gray-300';
+                        if (log.includes('ERROR') || log.includes('Failed')) logColor = 'text-red-400';
+                        else if (log.includes('SUCCESS') || log.includes('completed successfully')) logColor = 'text-green-400';
+                        else if (log.includes('WARNING')) logColor = 'text-yellow-400';
+                        else if (log.includes('Progress:')) logColor = 'text-blue-400';
+                        
+                        return (
+                          <div key={index} className={`${logColor} hover:bg-gray-800/50 px-2 py-0.5 rounded transition-colors`}>
+                            {log}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
