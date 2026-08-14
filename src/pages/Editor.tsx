@@ -1,11 +1,11 @@
-// Editor.tsx - Clean Production Version
+// Editor.tsx - Complete Production Version
 import React, { useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Node, Edge, Connection } from 'reactflow';
 import {
   GitBranch, PlayCircle, Download, Upload, Undo2, Redo2,
   ZoomIn, ZoomOut, ChevronDown, Save, Loader2, X,
-  Pause, Square, RefreshCw, CirclePlay, CircleStop
+  Pause, Square, RefreshCw, CirclePlay, CircleStop, Calendar
 } from 'lucide-react';
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
@@ -57,14 +57,12 @@ export default function Editor() {
     loadWorkflow,
   } = useWorkflowEditor(workflowId ? parseInt(workflowId) : undefined);
 
-  // Load workflow when ID changes
   useEffect(() => {
     if (workflowId) {
       loadWorkflow(parseInt(workflowId));
     }
   }, [workflowId, loadWorkflow]);
 
-  // ============ ON CONNECT ============
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
     
@@ -84,7 +82,6 @@ export default function Editor() {
     });
   }, [setEdges, setIsDirty]);
 
-  // ============ UPDATE NODE PROPERTIES ============
   const updateNodeProperties = useCallback((newData: any) => {
     if (!selectedNode) return;
     
@@ -107,7 +104,6 @@ export default function Editor() {
     setSelectedNode(null);
   }, [setSelectedNode]);
 
-  // ============ EXPORT ============
   const exportWorkflow = useCallback(() => {
     if (!workflow) {
       showToast('warning', 'No workflow to export');
@@ -140,7 +136,6 @@ export default function Editor() {
     showToast('success', 'Workflow exported successfully');
   }, [workflow, nodes, edges, showToast]);
 
-  // ============ IMPORT ============
   const importWorkflow = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -172,7 +167,6 @@ export default function Editor() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [setNodes, setEdges, updateWorkflowMeta, showToast, setIsDirty]);
 
-  // ============ ZOOM CONTROLS ============
   const handleZoomIn = useCallback(() => {
     canvasRef.current?.zoomIn?.();
     requestAnimationFrame(() => {
@@ -197,7 +191,6 @@ export default function Editor() {
     });
   }, [setZoom]);
 
-  // ============ UNDO/REDO ============
   const handleUndo = useCallback(() => {
     canvasRef.current?.undo?.();
     const state = canvasRef.current?.getState?.();
@@ -221,7 +214,6 @@ export default function Editor() {
     setCanRedo(redo);
   }, [setCanUndo, setCanRedo]);
 
-  // ============ STATUS HELPERS ============
   const getExecutionStatusColor = () => {
     switch (executionStatus) {
       case 'running': return 'text-blue-600 bg-blue-50 border-blue-200';
@@ -241,6 +233,15 @@ export default function Editor() {
       case 'paused': return <Pause className="w-4 h-4" />;
       case 'cancelled': return <CircleStop className="w-4 h-4" />;
       default: return null;
+    }
+  };
+
+  const getWorkflowStatusColor = (status?: string) => {
+    switch (status) {
+      case 'active': return 'bg-green-100 text-green-800 border-green-200';
+      case 'draft': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'archived': return 'bg-gray-100 text-gray-800 border-gray-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
@@ -289,7 +290,6 @@ export default function Editor() {
               <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
             </div>
           </div>
-          
         </div>
         <Sidebar onAddNode={() => {}} />
       </aside>
@@ -298,7 +298,7 @@ export default function Editor() {
       <main className="flex-1 flex flex-col overflow-hidden bg-gray-50">
         {/* Header */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center px-6 flex-shrink-0">
-          <div className="flex items-center gap-4 flex-1">
+          <div className="flex items-center gap-3 flex-1">
             <input
               type="text"
               value={workflow?.name || ''}
@@ -306,6 +306,20 @@ export default function Editor() {
               className="text-base font-medium bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 outline-none transition-colors px-1 min-w-[200px]"
               placeholder="Workflow Name"
             />
+            
+            {workflow?.status && (
+              <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${getWorkflowStatusColor(workflow.status)}`}>
+                {workflow.status}
+              </span>
+            )}
+            
+            {workflow?.isScheduled && (
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                Scheduled
+              </span>
+            )}
+            
             {isDirty && (
               <span className="text-xs text-yellow-600 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
@@ -318,8 +332,6 @@ export default function Editor() {
                 Saving...
               </span>
             )}
-           
-            
           </div>
           
           <div className="flex items-center gap-1.5">
@@ -345,7 +357,6 @@ export default function Editor() {
               </button>
             ) : (
               <>
-                {/* Pause/Resume Button */}
                 <button
                   onClick={isPaused ? resumeExecution : pauseExecution}
                   className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
@@ -358,7 +369,6 @@ export default function Editor() {
                   {isPaused ? 'Resume' : 'Pause'}
                 </button>
 
-                {/* Cancel Button */}
                 <button
                   onClick={cancelExecution}
                   className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
@@ -367,7 +377,6 @@ export default function Editor() {
                   Cancel
                 </button>
 
-                {/* Cleanup Button */}
                 <button
                   onClick={cleanupExecution}
                   className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
@@ -377,8 +386,6 @@ export default function Editor() {
                 </button>
               </>
             )}
-
-           
 
             <div className="w-px h-6 bg-gray-200 mx-1" />
 
@@ -465,7 +472,7 @@ export default function Editor() {
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-gray-400">📋 Execution Logs</span>
+                      <span className="text-xs font-medium text-gray-400">Execution Logs</span>
                       <span className="text-[10px] bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">
                         {emailLogs.length} entries
                       </span>
