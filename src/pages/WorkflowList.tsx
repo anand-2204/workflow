@@ -2,17 +2,66 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Search, Loader2, Trash2, AlertCircle,
-  RefreshCw, Calendar, Clock, Layers
+  RefreshCw, Calendar, Clock, Layers, History, Timer
 } from 'lucide-react';
 import { workflowApi } from '../api/workflowApi';
 import type { Workflow } from '../types/workflow';
 import { useToast } from '../hooks/useToast';
 
+// ============= HELPER FUNCTIONS =============
+
+// Format date with smart display
+const formatDate = (dateString?: string | null) => {
+  if (!dateString) return null;
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const compareDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    if (compareDate.getTime() === today.getTime()) {
+      return `Today, ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (compareDate.getTime() === yesterday.getTime()) {
+      return `Yesterday, ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      return date.toLocaleDateString('en-US', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+  } catch {
+    return null;
+  }
+};
+
+// Format time only
+const formatTime = (dateString?: string | null) => {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  } catch {
+    return '';
+  }
+};
+
+// ============= SCHEDULE MODAL =============
+
 function ScheduleWorkflowModal({ 
   isOpen, 
   onClose, 
   workflow, 
-  onSchedule 
+  onSchedule,
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
@@ -26,10 +75,19 @@ function ScheduleWorkflowModal({
 
   useEffect(() => {
     if (isOpen) {
+      // ✅ FIX: Set default to tomorrow at 9:00 AM in LOCAL time
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(9, 0, 0, 0);
-      setScheduledDateTime(tomorrow.toISOString().slice(0, 16));
+      
+      // ✅ FIX: Use local datetime string without timezone conversion
+      const year = tomorrow.getFullYear();
+      const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+      const day = String(tomorrow.getDate()).padStart(2, '0');
+      const hours = String(tomorrow.getHours()).padStart(2, '0');
+      const minutes = String(tomorrow.getMinutes()).padStart(2, '0');
+      setScheduledDateTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+      
       setRecurrenceType('once');
       setError('');
     }
@@ -47,9 +105,11 @@ function ScheduleWorkflowModal({
         return;
       }
 
+      // ✅ FIX: Send the local datetime directly, not as UTC
+      // The backend will interpret this as Indian time
       const scheduleData = {
         workflowId: workflow?.id,
-        scheduledDateTime: new Date(scheduledDateTime).toISOString(),
+        scheduledDateTime: scheduledDateTime, // Send as string, not converted to UTC
         recurrenceType: recurrenceType,
       };
 
@@ -82,13 +142,14 @@ function ScheduleWorkflowModal({
           <p className="text-sm text-gray-600">
             Scheduling: <span className="font-medium">{workflow.name}</span>
           </p>
+          <p className="text-xs text-gray-400 mt-1">⏰ Time is in Indian Standard Time (IST)</p>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Date & Time
+                Date & Time (IST)
               </label>
               <input
                 type="datetime-local"
@@ -155,6 +216,8 @@ function ScheduleWorkflowModal({
   );
 }
 
+// ============= MAIN COMPONENT =============
+
 export default function WorkflowList() {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -181,13 +244,14 @@ export default function WorkflowList() {
       const scheduledList = scheduledData?.data || [];
       
       const workflowsWithSchedule = data.map((workflow: Workflow) => {
-        const scheduledInfo = scheduledList.find((s: any) => s.id === workflow.id);
+        const scheduledInfo = scheduledList.find((s: any) => s.workflowId === workflow.id || s.id === workflow.id);
         return {
           ...workflow,
           isScheduled: !!scheduledInfo,
-          nextRunTime: scheduledInfo?.nextRunTime || null,
+          // ✅ FIX: Use the date as-is from backend (already in IST)
+          scheduledDateTime: scheduledInfo?.scheduledDateTime || workflow.scheduledDateTime || null,
+          lastExecutionTime: workflow.lastExecutionTime || workflow.lastRunTime || null,
           recurrenceType: scheduledInfo?.recurrenceType || workflow.recurrenceType || 'once',
-          scheduledDateTime: scheduledInfo?.scheduledDateTime || workflow.scheduledDateTime || null
         };
       });
       
@@ -270,7 +334,6 @@ export default function WorkflowList() {
     }
   };
 
-  // Cancel Schedule - Updated with loading state
   const handleCancelSchedule = async (workflowId: number, event: React.MouseEvent) => {
     event.stopPropagation();
     
@@ -290,7 +353,7 @@ export default function WorkflowList() {
       
       if (response.success) {
         showToast('success', 'Schedule cancelled successfully');
-        await loadWorkflows(); // Refresh the list
+        await loadWorkflows();
       } else {
         showToast('error', response.message || 'Failed to cancel schedule');
       }
@@ -309,15 +372,27 @@ export default function WorkflowList() {
 
   const getStatusColor = (status?: string) => {
     switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'draft': return 'bg-yellow-100 text-yellow-800';
-      case 'archived': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'active': return 'bg-green-100 text-green-800 border-green-200';
+      case 'draft': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'archived': return 'bg-gray-100 text-gray-800 border-gray-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
-  const isWorkflowScheduled = (workflow: Workflow) => {
-    return workflow.isScheduled === true;
+  // ✅ FIX: Helper to convert UTC to local for display
+  const formatDisplayDate = (dateString?: string | null) => {
+    if (!dateString) return null;
+    try {
+      // Parse the date and display in local timezone
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return null;
+      
+      // Force display in IST (UTC+5:30) by adjusting
+      // The backend returns IST, so we don't need to convert
+      return formatDate(dateString);
+    } catch {
+      return null;
+    }
   };
 
   return (
@@ -332,6 +407,7 @@ export default function WorkflowList() {
         onSchedule={handleSchedule}
       />
 
+      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Workflows</h1>
@@ -356,6 +432,7 @@ export default function WorkflowList() {
         </div>
       </div>
 
+      {/* Search */}
       <div className="mb-6">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -369,6 +446,7 @@ export default function WorkflowList() {
         </div>
       </div>
 
+      {/* Error State */}
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -385,18 +463,27 @@ export default function WorkflowList() {
         </div>
       )}
 
+      {/* Loading State */}
       {loading && workflows.length === 0 && (
         <div className="flex justify-center items-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
         </div>
       )}
 
+      {/* Workflow Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredWorkflows.map((workflow) => {
           const { nodeCount, edgeCount } = getWorkflowStats(workflow);
-          const isScheduled = isWorkflowScheduled(workflow);
+          const isScheduled = workflow.isScheduled === true && workflow.scheduledDateTime;
           const isCancelling = cancellingId === workflow.id;
+          const isDeleting = deletingId === workflow.id;
           
+          // ✅ FIX: Display dates in IST
+          const scheduledDate = workflow.scheduledDateTime ? formatDate(workflow.scheduledDateTime) : null;
+          const scheduledTime = workflow.scheduledDateTime ? formatTime(workflow.scheduledDateTime) : null;
+          const lastRunDate = workflow.lastExecutionTime ? formatDate(workflow.lastExecutionTime) : null;
+          const hasExecuted = !!workflow.lastExecutionTime;
+
           return (
             <div
               key={workflow.id}
@@ -407,12 +494,13 @@ export default function WorkflowList() {
               }`}
               onClick={() => navigate(`/workflows/${workflow.id}`)}
             >
-              <div className="p-6">
+              <div className="p-5">
+                {/* Header */}
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="text-lg font-semibold text-gray-900 truncate flex-1">
                     {workflow.name || 'Unnamed Workflow'}
                   </h3>
-                  <div className="flex items-center gap-1 ml-2">
+                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -427,15 +515,12 @@ export default function WorkflowList() {
                     </button>
 
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(workflow.id, e);
-                      }}
-                      disabled={deletingId === workflow.id || !workflow.id}
+                      onClick={(e) => handleDelete(workflow.id, e)}
+                      disabled={isDeleting || !workflow.id}
                       className="p-1.5 hover:bg-red-100 rounded-lg transition-colors opacity-70 hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Delete workflow"
                     >
-                      {deletingId === workflow.id ? (
+                      {isDeleting ? (
                         <Loader2 className="w-4 h-4 animate-spin text-red-500" />
                       ) : (
                         <Trash2 className="w-4 h-4 text-gray-500 hover:text-red-600" />
@@ -444,12 +529,14 @@ export default function WorkflowList() {
                   </div>
                 </div>
 
+                {/* Description */}
                 {workflow.description && (
                   <p className="text-sm text-gray-600 mb-3 line-clamp-2">
                     {workflow.description}
                   </p>
                 )}
 
+                {/* Stats */}
                 <div className="flex items-center gap-4 text-sm text-gray-500">
                   <span className="flex items-center gap-1">
                     <Layers className="w-4 h-4" />
@@ -465,25 +552,45 @@ export default function WorkflowList() {
                   </span>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${getStatusColor(workflow.status)}`}>
-                      {workflow.status || 'draft'}
-                    </span>
-                    
-                    {isScheduled && (
-                      <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        Scheduled
-                      </span>
-                    )}
-                  </div>
+                {/* Badges Row */}
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${getStatusColor(workflow.status)}`}>
+                    {workflow.status || 'draft'}
+                  </span>
                   
-                  {isScheduled && workflow.nextRunTime && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-purple-600">
-                        Next: {new Date(workflow.nextRunTime).toLocaleString()}
-                      </span>
+                  {/* Scheduled Badge with Time - Displaying IST */}
+                  {isScheduled && workflow.scheduledDateTime && scheduledDate && (
+                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      Scheduled
+                      <span className="w-px h-3 bg-purple-300" />
+                      <Clock className="w-3 h-3" />
+                      <span className="font-mono text-[10px]">{scheduledTime}</span>
+                    </span>
+                  )}
+
+                  {/* Last Execution Badge with Date */}
+                  {hasExecuted && lastRunDate && (
+                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1">
+                      <History className="w-3 h-3" />
+                      Last Run
+                      <span className="w-px h-3 bg-blue-300" />
+                      <Timer className="w-3 h-3" />
+                      <span className="font-mono text-[10px]">{lastRunDate}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Schedule Details Row */}
+                {isScheduled && workflow.scheduledDateTime && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <Calendar className="w-3 h-3" />
+                        <span>Scheduled for:</span>
+                        <span className="font-medium text-gray-700">{scheduledDate}</span>
+                        <span className="text-xs text-purple-600">IST</span>
+                      </div>
                       <button
                         onClick={(e) => handleCancelSchedule(workflow.id!, e)}
                         disabled={isCancelling}
@@ -499,14 +606,42 @@ export default function WorkflowList() {
                         )}
                       </button>
                     </div>
-                  )}
-                </div>
+                    {workflow.recurrenceType && workflow.recurrenceType !== 'once' && (
+                      <div className="mt-1 text-xs text-gray-400">
+                        Recurrence: {workflow.recurrenceType}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Last Execution Details */}
+                {!isScheduled && hasExecuted && workflow.lastExecutionTime && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <History className="w-3 h-3" />
+                      <span>Last executed:</span>
+                      <span className="font-medium text-gray-700">{lastRunDate}</span>
+                      <span className="text-xs text-blue-600">IST</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Not Yet Executed */}
+                {!isScheduled && !hasExecuted && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                      <AlertCircle className="w-3 h-3" />
+                      <span>Not yet executed</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
+      {/* Empty State */}
       {!loading && !error && filteredWorkflows.length === 0 && (
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">

@@ -1,4 +1,4 @@
-// components/canvas/WorkflowCanvas.tsx
+
 import { useCallback, useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import ReactFlow, { 
   addEdge, 
