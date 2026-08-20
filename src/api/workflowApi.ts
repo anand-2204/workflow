@@ -1,4 +1,3 @@
-// api/workflowApi.ts
 import axios from 'axios';
 
 const API_BASE_URL = '/api'; 
@@ -18,7 +17,6 @@ export interface Workflow {
   createdAt: string;
   updatedAt?: string;
   data?: WorkflowData;
-  // Schedule fields
   isScheduled?: boolean;
   scheduledDateTime?: string;
   recurrenceType?: string;
@@ -42,16 +40,25 @@ export interface WorkflowExecution {
   updatedAt: string;
 }
 
+// Updated simplified status response
 export interface WorkflowStatusResponse {
+  success: boolean;
   status: string;
   progress: number;
-  executionId?: string;
-  currentNode?: string;
-  startTime?: string;
-  endTime?: string;
-  error?: string;
-  nodes: WorkflowStatusNode[];
-  logs: string[];
+  executionId?: string | null;
+  isComplete: boolean;
+  error?: string | null;
+  endTime?: string | null;
+  // For backward compatibility
+  data?: {
+    success: boolean;
+    status: string;
+    progress: number;
+    executionId?: string;
+    isComplete: boolean;
+    error?: string;
+    endTime?: string;
+  };
 }
 
 export interface WorkflowStatusNode {
@@ -72,10 +79,17 @@ export interface ExecuteWorkflowRequest {
 }
 
 export interface WorkflowExecutionResult {
-  executionId: string;
-  status: string;
+  executionId?: string;
+  status?: string;
   url?: string;
   message?: string;
+  success?: boolean;
+  data?: {
+    status: string;
+    progress: number;
+    executionId: string;
+    startTime: string;
+  };
 }
 
 export interface PaginatedResponse<T> {
@@ -113,23 +127,23 @@ export interface NodeExecutionDetail {
   input?: any;
   output?: any;
   error?: string;
-  retryCount: number;
+  retryCount?: number;
   startTime?: string;
   endTime?: string;
 }
 
 export interface WorkflowExecutionDetailResponse {
-  executionId: string;
-  workflowId: number;
-  workflowName: string;
-  status: string;
-  progress: number;
+  executionId?: string;
+  workflowId?: number;
+  workflowName?: string;
+  status?: string;
+  progress?: number;
   currentNode?: string;
   error?: string;
-  startTime: string;
+  startTime?: string;
   endTime?: string;
-  nodes: NodeExecutionDetail[];
-  logs: ExecutionLogResponse[];
+  nodes?: NodeExecutionDetail[];
+  logs?: ExecutionLogResponse[];
 }
 
 export interface CreateWorkflowRequest {
@@ -170,7 +184,6 @@ export interface CleanupExecutionResult {
   message: string;
 }
 
-// Schedule Types
 export interface ScheduleWorkflowRequest {
   workflowId: number;
   scheduledDateTime: string;
@@ -206,7 +219,6 @@ export interface ScheduledWorkflowsResponse {
   data: ScheduledWorkflow[];
 }
 
-// Create axios instance with default config
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -216,23 +228,21 @@ const apiClient = axios.create({
   timeout: 30000
 });
 
-// Request interceptor for debugging
 apiClient.interceptors.request.use(
   (config) => {
-    console.log(`📡 ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+    console.log(`${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for debugging
 apiClient.interceptors.response.use(
   (response) => {
-    console.log(`✅ ${response.status} ${response.config.url}`);
+    console.log(`${response.status} ${response.config.url}`);
     return response;
   },
   (error) => {
-    console.error(`❌ Error ${error.response?.status || 'Network'} ${error.config?.url}`);
+    console.error(`Error ${error.response?.status || 'Network'} ${error.config?.url}`);
     console.error('Details:', error.response?.data || error.message);
     return Promise.reject(error);
   }
@@ -261,8 +271,18 @@ export const workflowApi = {
   },
 
   getById: async (id: number): Promise<Workflow> => {
+    if (!id || isNaN(id) || id <= 0) {
+      throw new Error(`Invalid workflow ID: ${id}`);
+    }
+
     try {
       const response = await apiClient.get(`/Workflow/${id}`);
+      console.log('API Response for workflow', id, ':', response.data);
+      
+      if (response.data && response.data.success && response.data.data) {
+        return response.data.data;
+      }
+      
       return response.data;
     } catch (error: any) {
       console.error(`Error fetching workflow ${id}:`, error);
@@ -272,12 +292,12 @@ export const workflowApi = {
 
   create: async (data: CreateWorkflowRequest): Promise<Workflow> => {
     try {
-      console.log('📡 Creating workflow with data:', data);
+      console.log('Creating workflow with data:', data);
       const response = await apiClient.post('/Workflow', data);
-      console.log('✅ Workflow created:', response.data);
+      console.log('Workflow created:', response.data);
       return response.data;
     } catch (error: any) {
-      console.error('❌ Error creating workflow:', error);
+      console.error('Error creating workflow:', error);
       if (error.response) {
         console.error('Status:', error.response.status);
         console.error('Data:', error.response.data);
@@ -307,11 +327,21 @@ export const workflowApi = {
 
   // ============ WORKFLOW EXECUTION ============
 
-  execute: async (id: number, payload: any): Promise<WorkflowExecutionResult> => {
+  execute: async (id: number, payload: ExecuteWorkflowRequest): Promise<WorkflowExecutionResult> => {
     try {
-      console.log(`📡 Executing workflow ${id} with payload:`, payload);
+      console.log(`Executing workflow ${id} with payload:`, payload);
       const response = await apiClient.post(`/Workflow/${id}/execute`, payload);
-      console.log('✅ Execution response:', response.data);
+      console.log('Execution response:', response.data);
+      
+      // Handle wrapped response
+      if (response.data && response.data.success && response.data.data) {
+        return {
+          executionId: response.data.data?.executionId,
+          status: response.data.data?.status,
+          message: response.data.message
+        };
+      }
+      
       return response.data;
     } catch (error: any) {
       console.error(`Error executing workflow ${id}:`, error);
@@ -323,10 +353,33 @@ export const workflowApi = {
     }
   },
 
+  // ============ GET STATUS - SIMPLIFIED ============
   getStatus: async (id: number): Promise<WorkflowStatusResponse> => {
     try {
       const response = await apiClient.get(`/Workflow/${id}/status`);
-      return response.data;
+      console.log('Status response:', response.data);
+      
+      // The new API returns: { success: true/false, status: "...", progress: ..., executionId: ..., isComplete: ... }
+      // If wrapped in data, extract it
+      let statusData = response.data;
+      
+      // Handle both old and new formats
+      if (response.data && response.data.data) {
+        // Old format with data wrapper
+        statusData = response.data.data;
+      }
+      
+      // Ensure we have all required fields
+      return {
+        success: statusData.success === true,
+        status: statusData.status || 'idle',
+        progress: statusData.progress || 0,
+        executionId: statusData.executionId || null,
+        isComplete: statusData.isComplete || false,
+        error: statusData.error || null,
+        endTime: statusData.endTime || null
+      };
+      
     } catch (error: any) {
       console.error(`Error getting status for workflow ${id}:`, error);
       throw error;
@@ -348,6 +401,12 @@ export const workflowApi = {
   getExecutionDetails: async (executionId: string): Promise<WorkflowExecutionDetailResponse> => {
     try {
       const response = await apiClient.get(`/Workflow/executions/${executionId}`);
+      console.log('Execution details response:', response.data);
+      
+      if (response.data && response.data.success && response.data.data) {
+        return response.data.data;
+      }
+      
       return response.data;
     } catch (error: any) {
       console.error(`Error getting execution details ${executionId}:`, error);
@@ -421,39 +480,37 @@ export const workflowApi = {
   },
 
   // ============ SCHEDULING ============
-  // POST /api/Workflow/schedule
+
   schedule: async (data: ScheduleWorkflowRequest): Promise<ScheduleWorkflowResponse> => {
     try {
-      console.log('📡 Scheduling workflow:', data);
+      console.log('Scheduling workflow:', data);
       const response = await apiClient.post('/Workflow/schedule', data);
-      console.log('✅ Schedule response:', response.data);
+      console.log('Schedule response:', response.data);
       return response.data;
     } catch (error: any) {
-      console.error('❌ Error scheduling workflow:', error);
+      console.error('Error scheduling workflow:', error);
       throw error;
     }
   },
 
-  // GET /api/Workflow/scheduled
   getScheduled: async (): Promise<ScheduledWorkflowsResponse> => {
     try {
       const response = await apiClient.get('/Workflow/scheduled');
       return response.data;
     } catch (error: any) {
-      console.error('❌ Error getting scheduled workflows:', error);
+      console.error('Error getting scheduled workflows:', error);
       throw error;
     }
   },
 
-  // DELETE /api/Workflow/schedule/{id}
   cancelSchedule: async (workflowId: number): Promise<{ success: boolean; message: string }> => {
     try {
-      console.log(`📡 Cancelling schedule for workflow ${workflowId}`);
+      console.log(`Cancelling schedule for workflow ${workflowId}`);
       const response = await apiClient.delete(`/Workflow/schedule/${workflowId}`);
-      console.log('✅ Cancel schedule response:', response.data);
+      console.log('Cancel schedule response:', response.data);
       return response.data;
     } catch (error: any) {
-      console.error(`❌ Error cancelling schedule for workflow ${workflowId}:`, error);
+      console.error(`Error cancelling schedule for workflow ${workflowId}:`, error);
       throw error;
     }
   },
@@ -513,17 +570,21 @@ export const workflowApi = {
       
       try {
         const status = await workflowApi.getStatus(id);
-        console.log(`📊 Poll ${attempts}: Status = ${status.status}, Progress = ${status.progress}%`);
+        
+        // Extract status data
+        const currentStatus = status.status;
+        const progress = status.progress || 0;
+        const isSuccess = status.success === true;
+        const isComplete = status.isComplete === true;
+        
+        console.log(`Poll ${attempts}: Status = ${currentStatus}, Progress = ${progress}%, Success = ${isSuccess}, Complete = ${isComplete}`);
         
         onStatusUpdate(status);
         
-        const isComplete = 
-          status.status === 'idle' ||
-          status.status === 'completed' ||
-          status.status === 'failed' ||
-          status.status === 'cancelled';
-        
-        if (isComplete) {
+        // Check if execution is complete or successful
+        if (isSuccess || isComplete || 
+            currentStatus === 'idle' || currentStatus === 'completed' || 
+            currentStatus === 'failed' || currentStatus === 'cancelled') {
           isPolling = false;
           onComplete(status);
           return;
@@ -553,6 +614,44 @@ export const workflowApi = {
         timeoutId = null;
       }
     };
+  },
+
+  // ============ HELPER FUNCTIONS ============
+  
+  isExecutionComplete: (status: string): boolean => {
+    const completedStatuses = ['idle', 'completed', 'success', 'failed', 'cancelled', 'done'];
+    return completedStatuses.includes(status?.toLowerCase() || '');
+  },
+
+  isExecutionSuccessful: (status: string): boolean => {
+    return status?.toLowerCase() === 'completed' || status?.toLowerCase() === 'success';
+  },
+
+  getNodeStatusSummary: (nodes: WorkflowStatusNode[]): { completed: number; pending: number; failed: number; running: number } => {
+    const summary = { completed: 0, pending: 0, failed: 0, running: 0 };
+    
+    if (!nodes) return summary;
+    
+    nodes.forEach(node => {
+      const status = node.status?.toLowerCase() || '';
+      if (status === 'completed' || status === 'success') {
+        summary.completed++;
+      } else if (status === 'pending' || status === 'waiting') {
+        summary.pending++;
+      } else if (status === 'failed' || status === 'error') {
+        summary.failed++;
+      } else if (status === 'running' || status === 'in-progress') {
+        summary.running++;
+      }
+    });
+    
+    return summary;
+  },
+
+  calculateProgress: (nodes: WorkflowStatusNode[]): number => {
+    if (!nodes || nodes.length === 0) return 0;
+    const completed = nodes.filter(n => n.status === 'completed' || n.status === 'success').length;
+    return Math.round((completed / nodes.length) * 100);
   }
 };
 

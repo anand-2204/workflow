@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Search, Loader2, Trash2, AlertCircle,
-  RefreshCw, Calendar, Clock, Layers, History, Timer
+  RefreshCw, Calendar, Clock, Layers, History,
+  CheckCircle, XCircle, PlayCircle, PauseCircle
 } from 'lucide-react';
 import { workflowApi } from '../api/workflowApi';
 import type { Workflow } from '../types/workflow';
@@ -10,7 +11,6 @@ import { useToast } from '../hooks/useToast';
 
 // ============= HELPER FUNCTIONS =============
 
-// Format date with smart display
 const formatDate = (dateString?: string | null) => {
   if (!dateString) return null;
   try {
@@ -39,7 +39,6 @@ const formatDate = (dateString?: string | null) => {
   }
 };
 
-// Format time only
 const formatTime = (dateString?: string | null) => {
   if (!dateString) return '';
   try {
@@ -75,12 +74,10 @@ function ScheduleWorkflowModal({
 
   useEffect(() => {
     if (isOpen) {
-      // ✅ FIX: Set default to tomorrow at 9:00 AM in LOCAL time
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(9, 0, 0, 0);
       
-      // ✅ FIX: Use local datetime string without timezone conversion
       const year = tomorrow.getFullYear();
       const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
       const day = String(tomorrow.getDate()).padStart(2, '0');
@@ -105,11 +102,9 @@ function ScheduleWorkflowModal({
         return;
       }
 
-      // ✅ FIX: Send the local datetime directly, not as UTC
-      // The backend will interpret this as Indian time
       const scheduleData = {
         workflowId: workflow?.id,
-        scheduledDateTime: scheduledDateTime, // Send as string, not converted to UTC
+        scheduledDateTime: scheduledDateTime,
         recurrenceType: recurrenceType,
       };
 
@@ -142,7 +137,7 @@ function ScheduleWorkflowModal({
           <p className="text-sm text-gray-600">
             Scheduling: <span className="font-medium">{workflow.name}</span>
           </p>
-          <p className="text-xs text-gray-400 mt-1">⏰ Time is in Indian Standard Time (IST)</p>
+          <p className="text-xs text-gray-400 mt-1">Time is in Indian Standard Time (IST)</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -232,6 +227,8 @@ export default function WorkflowList() {
 
   useEffect(() => {
     loadWorkflows();
+    const interval = setInterval(loadWorkflows, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadWorkflows = async () => {
@@ -245,13 +242,15 @@ export default function WorkflowList() {
       
       const workflowsWithSchedule = data.map((workflow: Workflow) => {
         const scheduledInfo = scheduledList.find((s: any) => s.workflowId === workflow.id || s.id === workflow.id);
+        
         return {
           ...workflow,
           isScheduled: !!scheduledInfo,
-          // ✅ FIX: Use the date as-is from backend (already in IST)
           scheduledDateTime: scheduledInfo?.scheduledDateTime || workflow.scheduledDateTime || null,
           lastExecutionTime: workflow.lastExecutionTime || workflow.lastRunTime || null,
           recurrenceType: scheduledInfo?.recurrenceType || workflow.recurrenceType || 'once',
+          nextRunTime: scheduledInfo?.nextRunTime || null,
+          executionCount: workflow.executionCount || 0,
         };
       });
       
@@ -287,14 +286,44 @@ export default function WorkflowList() {
             edgeCount = parsed.edges.length;
           }
         } catch {
-          // Invalid JSON, return defaults
+          // Invalid JSON
         }
       }
     } catch {
-      // Error parsing, return defaults
+      // Error parsing
     }
     
     return { nodeCount, edgeCount };
+  };
+
+  const getExecutionStatus = (workflow: Workflow): 'scheduled' | 'executing' | 'completed' | 'failed' | 'cancelled' | 'idle' => {
+    // Check if scheduled
+    if (workflow.isScheduled && workflow.scheduledDateTime) {
+      try {
+        const scheduled = new Date(workflow.scheduledDateTime);
+        const now = new Date();
+        
+        // Future scheduled time
+        if (scheduled > now) {
+          return 'scheduled';
+        }
+        
+        // Past scheduled time - check if executed
+        if (workflow.lastExecutionTime) {
+          return 'completed';
+        }
+        return 'idle';
+      } catch {
+        return 'scheduled';
+      }
+    }
+
+    // Check last execution
+    if (workflow.lastExecutionTime) {
+      return 'completed';
+    }
+
+    return 'idle';
   };
 
   const handleDelete = async (id: number | undefined, event: React.MouseEvent) => {
@@ -358,7 +387,6 @@ export default function WorkflowList() {
         showToast('error', response.message || 'Failed to cancel schedule');
       }
     } catch (error: any) {
-      console.error('Error cancelling schedule:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to cancel schedule';
       showToast('error', errorMessage);
     } finally {
@@ -373,25 +401,58 @@ export default function WorkflowList() {
   const getStatusColor = (status?: string) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800 border-green-200';
-      case 'draft': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'archived': return 'bg-gray-100 text-gray-800 border-gray-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      default: return 'bg-blue-100 text-blue-800 border-blue-200';
     }
   };
 
-  // ✅ FIX: Helper to convert UTC to local for display
-  const formatDisplayDate = (dateString?: string | null) => {
-    if (!dateString) return null;
-    try {
-      // Parse the date and display in local timezone
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return null;
-      
-      // Force display in IST (UTC+5:30) by adjusting
-      // The backend returns IST, so we don't need to convert
-      return formatDate(dateString);
-    } catch {
-      return null;
+  const getStatusLabel = (status?: string) => {
+    switch (status) {
+      case 'active': return 'Active';
+      case 'archived': return 'Archived';
+      default: return 'Ready';
+    }
+  };
+
+  // Status badge configuration
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'scheduled':
+        return {
+          icon: <Calendar className="w-3 h-3" />,
+          label: 'Scheduled',
+          className: 'bg-purple-100 text-purple-800 border-purple-300'
+        };
+      case 'completed':
+        return {
+          icon: <CheckCircle className="w-3 h-3" />,
+          label: 'Executed',
+          className: 'bg-green-100 text-green-800 border-green-300'
+        };
+      case 'executing':
+        return {
+          icon: <PlayCircle className="w-3 h-3 animate-pulse" />,
+          label: 'Running',
+          className: 'bg-blue-100 text-blue-800 border-blue-300'
+        };
+      case 'failed':
+        return {
+          icon: <XCircle className="w-3 h-3" />,
+          label: 'Failed',
+          className: 'bg-red-100 text-red-800 border-red-300'
+        };
+      case 'cancelled':
+        return {
+          icon: <XCircle className="w-3 h-3" />,
+          label: 'Cancelled',
+          className: 'bg-gray-100 text-gray-800 border-gray-300'
+        };
+      default:
+        return {
+          icon: <PauseCircle className="w-3 h-3" />,
+          label: 'Idle',
+          className: 'bg-gray-100 text-gray-600 border-gray-300'
+        };
     }
   };
 
@@ -477,21 +538,21 @@ export default function WorkflowList() {
           const isScheduled = workflow.isScheduled === true && workflow.scheduledDateTime;
           const isCancelling = cancellingId === workflow.id;
           const isDeleting = deletingId === workflow.id;
-          
-          // ✅ FIX: Display dates in IST
-          const scheduledDate = workflow.scheduledDateTime ? formatDate(workflow.scheduledDateTime) : null;
-          const scheduledTime = workflow.scheduledDateTime ? formatTime(workflow.scheduledDateTime) : null;
-          const lastRunDate = workflow.lastExecutionTime ? formatDate(workflow.lastExecutionTime) : null;
-          const hasExecuted = !!workflow.lastExecutionTime;
+          const executionStatus = getExecutionStatus(workflow);
+          const statusBadge = getStatusBadge(executionStatus);
+
+          // Card border based on status
+          const getCardBorder = () => {
+            if (isScheduled) return 'border-purple-300 shadow-purple-100';
+            if (executionStatus === 'completed') return 'border-green-300 shadow-green-100';
+            if (executionStatus === 'failed') return 'border-red-300 shadow-red-100';
+            return 'border-gray-200 hover:shadow-md';
+          };
 
           return (
             <div
               key={workflow.id}
-              className={`bg-white rounded-lg shadow-sm border transition-all cursor-pointer group relative ${
-                isScheduled
-                  ? 'border-purple-300 shadow-md shadow-purple-100'
-                  : 'border-gray-200 hover:shadow-md'
-              }`}
+              className={`bg-white rounded-lg shadow-sm border transition-all cursor-pointer group ${getCardBorder()}`}
               onClick={() => navigate(`/workflows/${workflow.id}`)}
             >
               <div className="p-5">
@@ -507,11 +568,11 @@ export default function WorkflowList() {
                         setSelectedWorkflow(workflow);
                         setShowScheduleModal(true);
                       }}
-                      disabled={!workflow.id}
+                      disabled={!workflow.id || isScheduled}
                       className="p-1.5 hover:bg-purple-100 rounded-lg transition-colors opacity-70 hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Schedule workflow"
+                      title={isScheduled ? 'Already scheduled' : 'Schedule workflow'}
                     >
-                      <Calendar className="w-4 h-4 text-purple-600" />
+                      <Calendar className={`w-4 h-4 ${isScheduled ? 'text-purple-600' : 'text-gray-400'}`} />
                     </button>
 
                     <button
@@ -552,45 +613,36 @@ export default function WorkflowList() {
                   </span>
                 </div>
 
-                {/* Badges Row */}
-                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                {/* Status Badge */}
+                <div className="mt-3 flex items-center gap-2">
                   <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${getStatusColor(workflow.status)}`}>
-                    {workflow.status || 'draft'}
+                    {getStatusLabel(workflow.status)}
                   </span>
                   
-                  {/* Scheduled Badge with Time - Displaying IST */}
-                  {isScheduled && workflow.scheduledDateTime && scheduledDate && (
-                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      Scheduled
-                      <span className="w-px h-3 bg-purple-300" />
-                      <Clock className="w-3 h-3" />
-                      <span className="font-mono text-[10px]">{scheduledTime}</span>
-                    </span>
-                  )}
-
-                  {/* Last Execution Badge with Date */}
-                  {hasExecuted && lastRunDate && (
-                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1">
-                      <History className="w-3 h-3" />
-                      Last Run
-                      <span className="w-px h-3 bg-blue-300" />
-                      <Timer className="w-3 h-3" />
-                      <span className="font-mono text-[10px]">{lastRunDate}</span>
-                    </span>
-                  )}
+                  <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${statusBadge.className}`}>
+                    {statusBadge.icon}
+                    {statusBadge.label}
+                  </span>
                 </div>
 
-                {/* Schedule Details Row */}
+                {/* Schedule Info - Only show if scheduled */}
                 {isScheduled && workflow.scheduledDateTime && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <Calendar className="w-3 h-3" />
-                        <span>Scheduled for:</span>
-                        <span className="font-medium text-gray-700">{scheduledDate}</span>
-                        <span className="text-xs text-purple-600">IST</span>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Calendar className="w-4 h-4 text-purple-600" />
+                      <span className="text-gray-600">Scheduled:</span>
+                      <span className="font-medium text-gray-800">
+                        {formatDate(workflow.scheduledDateTime)}
+                      </span>
+                      <span className="text-xs text-purple-600">IST</span>
+                    </div>
+                    {workflow.recurrenceType && workflow.recurrenceType !== 'once' && (
+                      <div className="mt-1 text-xs text-gray-500">
+                        Recurrence: {workflow.recurrenceType}
                       </div>
+                    )}
+                    {/* Cancel Schedule Button */}
+                    <div className="mt-2 flex justify-end">
                       <button
                         onClick={(e) => handleCancelSchedule(workflow.id!, e)}
                         disabled={isCancelling}
@@ -602,36 +654,23 @@ export default function WorkflowList() {
                             Cancelling...
                           </>
                         ) : (
-                          'Cancel'
+                          'Cancel Schedule'
                         )}
                       </button>
                     </div>
-                    {workflow.recurrenceType && workflow.recurrenceType !== 'once' && (
-                      <div className="mt-1 text-xs text-gray-400">
-                        Recurrence: {workflow.recurrenceType}
-                      </div>
-                    )}
                   </div>
                 )}
 
-                {/* Last Execution Details */}
-                {!isScheduled && hasExecuted && workflow.lastExecutionTime && (
+                {/* Last Execution Info - Only show if executed and not scheduled */}
+                {!isScheduled && workflow.lastExecutionTime && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <History className="w-3 h-3" />
-                      <span>Last executed:</span>
-                      <span className="font-medium text-gray-700">{lastRunDate}</span>
-                      <span className="text-xs text-blue-600">IST</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Not Yet Executed */}
-                {!isScheduled && !hasExecuted && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <div className="flex items-center gap-2 text-xs text-gray-400">
-                      <AlertCircle className="w-3 h-3" />
-                      <span>Not yet executed</span>
+                    <div className="flex items-center gap-2 text-sm">
+                      <History className="w-4 h-4 text-green-600" />
+                      <span className="text-gray-600">Last executed:</span>
+                      <span className="font-medium text-gray-800">
+                        {formatDate(workflow.lastExecutionTime)}
+                      </span>
+                      <span className="text-xs text-green-600">IST</span>
                     </div>
                   </div>
                 )}

@@ -1,4 +1,4 @@
-// hooks/useWorkflowEditor.ts - Fixed Save Function
+// hooks/useWorkflowEditor.ts
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Node, Edge } from 'reactflow';
 import { workflowApi } from '../api/workflowApi';
@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 
 export const useWorkflowEditor = (workflowId?: number) => {
   const navigate = useNavigate();
-  const { showToast } = useToast();
+  const { showToast, removeToast } = useToast();
   
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -24,65 +24,104 @@ export const useWorkflowEditor = (workflowId?: number) => {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [zoom, setZoom] = useState(100);
-  const [executionInterval, setExecutionInterval] = useState<NodeJS.Timeout | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [executionProgress, setExecutionProgress] = useState(0);
   const [executionStatus, setExecutionStatus] = useState<string>('idle');
-  const [pollingAttempts, setPollingAttempts] = useState(0);
+  const [toastId, setToastId] = useState<string | null>(null);
   
   const canvasRef = useRef<any>(null);
   const isPollingRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_POLLING_ATTEMPTS = 60;
 
+  // ============ HELPER FUNCTIONS ============
+  
+  const isExecutionComplete = (status?: string): boolean => {
+    if (!status) return false;
+    const completedStatuses = ['idle', 'completed', 'finished', 'failed', 'cancelled', 'done', 'success'];
+    return completedStatuses.includes(status.toLowerCase());
+  };
+
+  const isExecutionSuccessful = (status?: string): boolean => {
+    if (!status) return false;
+    return status.toLowerCase() === 'completed' || 
+           status.toLowerCase() === 'finished' || 
+           status.toLowerCase() === 'done' || 
+           status.toLowerCase() === 'success';
+  };
+
+  // ============ SHOW AUTO-CLOSE TOAST ============
+  const showAutoCloseToast = useCallback((type: 'success' | 'error' | 'warning' | 'info', message: string, duration: number = 5000) => {
+    // Remove any existing toast
+    if (toastId) {
+      removeToast(toastId);
+    }
+    
+    // Show new toast and store its ID
+    const id = showToast(type, message);
+    setToastId(id);
+    
+    // Auto-close after duration
+    setTimeout(() => {
+      if (id) {
+        removeToast(id);
+        setToastId(null);
+      }
+    }, duration);
+    
+    return id;
+  }, [showToast, removeToast, toastId]);
+
   // ============ LOAD WORKFLOW ============
   const loadWorkflow = useCallback(async (id: number) => {
+    if (!id || isNaN(id) || id <= 0) {
+      showToast('error', 'Invalid workflow ID');
+      return;
+    }
+
     try {
       setIsLoading(true);
-      console.log('🔍 Loading workflow:', id);
       
-      const data = await workflowApi.getById(id);
-      console.log('📥 Workflow data:', data);
+      const response = await workflowApi.getById(id);
       
       let loadedNodes: Node[] = [];
       let loadedEdges: Edge[] = [];
+      let workflowData = response;
       
-      if (data.data) {
-        loadedNodes = data.data.nodes || [];
-        loadedEdges = data.data.edges || [];
-        console.log(`📊 From data.data: ${loadedNodes.length} nodes, ${loadedEdges.length} edges`);
+      if (response.success && response.data) {
+        workflowData = response.data;
       }
       
-      if (data.jsonData && loadedNodes.length === 0) {
+      if (workflowData.data && workflowData.data.nodes) {
+        loadedNodes = workflowData.data.nodes || [];
+        loadedEdges = workflowData.data.edges || [];
+      } else if (workflowData.nodes) {
+        loadedNodes = workflowData.nodes || [];
+        loadedEdges = workflowData.edges || [];
+      } else if (workflowData.jsonData) {
         try {
-          const parsed = JSON.parse(data.jsonData);
+          const parsed = JSON.parse(workflowData.jsonData);
           loadedNodes = parsed.nodes || [];
           loadedEdges = parsed.edges || [];
-          console.log(`📊 From jsonData: ${loadedNodes.length} nodes, ${loadedEdges.length} edges`);
         } catch (e) {
           console.error('Error parsing jsonData:', e);
         }
       }
       
-      console.log(`✅ Loaded: ${loadedNodes.length} nodes, ${loadedEdges.length} edges`);
-      if (loadedEdges.length > 0) {
-        console.log('🔗 Loaded edges:', JSON.stringify(loadedEdges, null, 2));
-      }
-      
       setNodes(loadedNodes);
       setEdges(loadedEdges);
-      setWorkflow(data);
+      setWorkflow(workflowData);
       setIsDirty(false);
       
     } catch (error) {
-      console.error('❌ Load error:', error);
+      console.error('Load error:', error);
       showToast('error', 'Failed to load workflow');
     } finally {
       setIsLoading(false);
     }
   }, [showToast]);
 
-  // ============ SAVE WORKFLOW - FIXED ============
+  // ============ SAVE WORKFLOW ============
   const saveWorkflow = useCallback(async () => {
     if (!workflow) {
       showToast('error', 'No workflow to save');
@@ -92,21 +131,9 @@ export const useWorkflowEditor = (workflowId?: number) => {
     try {
       setIsSaving(true);
       
-      // CRITICAL: Get current state values
       const currentNodes = nodes;
       const currentEdges = edges;
       
-      console.log('💾 SAVING WORKFLOW');
-      console.log('📊 Current Nodes:', currentNodes.length);
-      console.log('📊 Current Edges:', currentEdges.length);
-      
-      if (currentEdges.length > 0) {
-        console.log('🔗 EDGES TO SAVE:', JSON.stringify(currentEdges, null, 2));
-      } else {
-        console.warn('⚠️ NO EDGES to save!');
-      }
-      
-      // Clean nodes
       const cleanNodes = currentNodes.map(node => ({
         id: node.id,
         type: node.type,
@@ -119,7 +146,6 @@ export const useWorkflowEditor = (workflowId?: number) => {
         }
       }));
       
-      // Clean edges - PRESERVE EXACT USER CONNECTIONS
       const cleanEdges = currentEdges.map(edge => ({
         id: edge.id,
         source: edge.source,
@@ -130,9 +156,6 @@ export const useWorkflowEditor = (workflowId?: number) => {
         style: edge.style || { stroke: '#3b82f6', strokeWidth: 2 }
       }));
       
-      console.log(`🧹 Clean Nodes: ${cleanNodes.length}, Clean Edges: ${cleanEdges.length}`);
-      
-      // Build the data object
       const workflowData = {
         nodes: cleanNodes,
         edges: cleanEdges,
@@ -140,14 +163,8 @@ export const useWorkflowEditor = (workflowId?: number) => {
         updatedAt: new Date().toISOString()
       };
       
-      // Stringify
       const jsonData = JSON.stringify(workflowData);
       
-      // VERIFY: Parse back to check
-      const verify = JSON.parse(jsonData);
-      console.log(`✅ VERIFIED: ${verify.nodes?.length || 0} nodes, ${verify.edges?.length || 0} edges`);
-      
-      // Prepare update payload
       const updatePayload = {
         name: workflow.name || 'Untitled',
         jsonData: jsonData,
@@ -155,33 +172,24 @@ export const useWorkflowEditor = (workflowId?: number) => {
         status: workflow.status || 'draft'
       };
       
-      console.log('📤 SENDING TO API:', {
-        name: updatePayload.name,
-        jsonDataLength: updatePayload.jsonData.length,
-        edgesCount: cleanEdges.length
-      });
-      
       let savedWorkflow;
       
       if (workflow.id) {
         savedWorkflow = await workflowApi.update(workflow.id, updatePayload);
-        console.log('✅ Workflow updated:', savedWorkflow.id);
         showToast('success', 'Workflow saved successfully');
       } else {
         savedWorkflow = await workflowApi.create(updatePayload);
-        console.log('✅ Workflow created:', savedWorkflow.id);
         showToast('success', 'Workflow created successfully');
         navigate(`/workflows/${savedWorkflow.id}`);
       }
       
-      // Update local state
       setWorkflow(savedWorkflow);
       setIsDirty(false);
       
       return savedWorkflow;
       
     } catch (error: any) {
-      console.error('❌ Save error:', error);
+      console.error('Save error:', error);
       showToast('error', error.message || 'Failed to save workflow');
       return null;
     } finally {
@@ -195,13 +203,8 @@ export const useWorkflowEditor = (workflowId?: number) => {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    if (executionInterval) {
-      clearInterval(executionInterval);
-      setExecutionInterval(null);
-    }
     isPollingRef.current = false;
-    setPollingAttempts(0);
-  }, [executionInterval]);
+  }, []);
 
   // ============ START POLLING ============
   const startPolling = useCallback((workflowId: number) => {
@@ -213,18 +216,52 @@ export const useWorkflowEditor = (workflowId?: number) => {
 
     intervalRef.current = setInterval(async () => {
       attempts++;
-      setPollingAttempts(attempts);
       
       if (isPollingComplete || !isPollingRef.current) return;
       
       try {
-        const status = await workflowApi.getStatus(workflowId);
-        const timestamp = new Date().toLocaleTimeString();
+        const statusResponse = await workflowApi.getStatus(workflowId);
         
-        setExecutionProgress(status.progress || 0);
-        setEmailLogs(prev => [...prev, `[${timestamp}] Status: ${status.status} - ${status.progress}%`]);
+        // Extract status data from response
+        const statusData = statusResponse.data || statusResponse;
+        const currentStatus = statusData.status || statusResponse.status;
+        const progress = statusData.progress || statusResponse.progress || 0;
+        const execId = statusData.executionId || statusResponse.executionId;
         
-        if (status.status === 'pending') {
+        setExecutionProgress(progress);
+        
+        // Check if the response has success: true
+        const hasSuccess = statusResponse.success === true || statusData.success === true;
+        
+        console.log('📊 Polling status:', { 
+          currentStatus, 
+          progress, 
+          hasSuccess,
+          execId,
+          rawResponse: statusResponse 
+        });
+        
+        // If success is true, consider it completed
+        if (hasSuccess) {
+          console.log('✅ Workflow completed with success: true');
+          isPollingComplete = true;
+          isPollingRef.current = false;
+          clearInterval(intervalRef.current!);
+          setIsExecuting(false);
+          setExecutionStatus('completed');
+          setExecutionProgress(100);
+          
+          setNodes(prev => prev.map(node => ({ 
+            ...node, 
+            data: { ...node.data, status: 'completed' } 
+          })));
+          
+          // Show auto-close toast
+          showAutoCloseToast('success', '✅ Workflow completed successfully!', 5000);
+          return;
+        }
+        
+        if (currentStatus === 'pending') {
           pendingCount++;
           if (pendingCount > 10) {
             isPollingComplete = true;
@@ -232,40 +269,56 @@ export const useWorkflowEditor = (workflowId?: number) => {
             clearInterval(intervalRef.current!);
             setIsExecuting(false);
             setExecutionStatus('timeout');
-            showToast('warning', 'Execution stuck in pending state');
+            showAutoCloseToast('warning', '⚠️ Execution stuck in pending state', 5000);
           }
           return;
         }
         
         pendingCount = 0;
         
-        if (['idle', 'completed', 'failed', 'cancelled'].includes(status.status)) {
+        // Check for completion
+        if (isExecutionComplete(currentStatus)) {
           isPollingComplete = true;
           isPollingRef.current = false;
           clearInterval(intervalRef.current!);
           setIsExecuting(false);
-          setExecutionStatus(status.status);
           
-          if (status.status === 'completed') {
-            setNodes(prev => prev.map(node => ({ ...node, data: { ...node.data, status: 'success' } })));
-            setEmailLogs(prev => [...prev, `[${timestamp}] ✅ Workflow completed!`]);
-            showToast('success', 'Workflow completed successfully!');
-          } else if (status.status === 'failed') {
-            setNodes(prev => prev.map(node => ({ ...node, data: { ...node.data, status: 'error' } })));
-            setEmailLogs(prev => [...prev, `[${timestamp}] ❌ Workflow failed`]);
-            showToast('error', 'Workflow execution failed');
+          // Set the final status
+          if (isExecutionSuccessful(currentStatus)) {
+            setExecutionStatus('completed');
+            setExecutionProgress(100);
+            setNodes(prev => prev.map(node => ({ 
+              ...node, 
+              data: { ...node.data, status: 'completed' } 
+            })));
+            showAutoCloseToast('success', '✅ Workflow completed successfully!', 5000);
+          } else if (currentStatus === 'failed' || currentStatus === 'error') {
+            setExecutionStatus('failed');
+            setNodes(prev => prev.map(node => ({ 
+              ...node, 
+              data: { ...node.data, status: 'error' } 
+            })));
+            showAutoCloseToast('error', '❌ Workflow execution failed', 5000);
+          } else if (currentStatus === 'cancelled') {
+            setExecutionStatus('cancelled');
+            setNodes(prev => prev.map(node => ({ 
+              ...node, 
+              data: { ...node.data, status: 'idle' } 
+            })));
+            showAutoCloseToast('warning', '⏹️ Workflow execution cancelled', 5000);
+          } else {
+            setExecutionStatus(currentStatus);
           }
           return;
         }
         
-        if (status.status === 'paused') {
+        if (currentStatus === 'paused') {
           setIsPaused(true);
           setExecutionStatus('paused');
-          setEmailLogs(prev => [...prev, `[${timestamp}] ⏸️ Workflow paused`]);
           return;
         }
         
-        if (status.status === 'running') {
+        if (currentStatus === 'running' || currentStatus === 'in-progress') {
           setIsPaused(false);
           setExecutionStatus('running');
         }
@@ -276,7 +329,7 @@ export const useWorkflowEditor = (workflowId?: number) => {
           clearInterval(intervalRef.current!);
           setIsExecuting(false);
           setExecutionStatus('timeout');
-          showToast('warning', 'Execution timeout');
+          showAutoCloseToast('warning', '⏱️ Execution timeout', 5000);
         }
         
       } catch (error) {
@@ -290,7 +343,7 @@ export const useWorkflowEditor = (workflowId?: number) => {
         }
       }
     }, 2000);
-  }, [stopPolling, setNodes, showToast]);
+  }, [stopPolling, setNodes, showAutoCloseToast]);
 
   // ============ EXECUTE WORKFLOW ============
   const executeWorkflow = useCallback(async () => {
@@ -308,10 +361,8 @@ export const useWorkflowEditor = (workflowId?: number) => {
       setIsExecuting(true);
       setIsPaused(false);
       setExecutionStatus('starting');
+      setExecutionProgress(0);
       setEmailLogs([]);
-      
-      const timestamp = new Date().toLocaleTimeString();
-      setEmailLogs(prev => [...prev, `[${timestamp}] 🚀 Starting execution...`]);
       
       const cleanNodes = nodes.map(node => ({
         ...node,
@@ -324,27 +375,28 @@ export const useWorkflowEditor = (workflowId?: number) => {
         viewport: { x: 0, y: 0, zoom: 1 }
       };
       
-      console.log(`📤 Executing with ${nodes.length} nodes, ${edges.length} edges`);
-      
       const result = await workflowApi.execute(workflow.id, payload);
-      setExecutionId(result.executionId);
-      setExecutionStatus('running');
       
-      setEmailLogs(prev => [...prev, `[${timestamp}] 📋 Execution ID: ${result.executionId}`]);
-      showToast('success', `Execution started: ${result.executionId}`);
+      // Handle wrapped response
+      const execId = result.executionId || result.data?.executionId;
+      const status = result.status || result.data?.status || 'running';
+      
+      setExecutionId(execId);
+      setExecutionStatus(status);
+      
+      // Show start toast (auto-close after 3 seconds)
+      showAutoCloseToast('info', '🚀 Workflow execution started...', 3000);
       
       setNodes(prev => prev.map(node => ({ ...node, data: { ...node.data, status: 'running' } })));
       startPolling(workflow.id);
       
     } catch (error: any) {
       console.error('Execution error:', error);
-      const timestamp = new Date().toLocaleTimeString();
-      setEmailLogs(prev => [...prev, `[${timestamp}] ❌ Failed: ${error.message}`]);
-      showToast('error', error.message || 'Failed to execute workflow');
+      showAutoCloseToast('error', error.message || 'Failed to execute workflow', 5000);
       setIsExecuting(false);
       setExecutionStatus('error');
     }
-  }, [workflow, nodes, edges, showToast, startPolling]);
+  }, [workflow, nodes, edges, showAutoCloseToast, startPolling]);
 
   // ============ PAUSE EXECUTION ============
   const pauseExecution = useCallback(async () => {
@@ -356,13 +408,13 @@ export const useWorkflowEditor = (workflowId?: number) => {
       const result = await workflowApi.pauseExecution(workflow.id);
       setIsPaused(true);
       setExecutionStatus('paused');
-      showToast('success', result.message || 'Execution paused');
+      showAutoCloseToast('success', result.message || 'Execution paused', 3000);
       return result;
     } catch (error: any) {
       showToast('error', error.message || 'Failed to pause execution');
       throw error;
     }
-  }, [workflow, showToast]);
+  }, [workflow, showAutoCloseToast, showToast]);
 
   // ============ RESUME EXECUTION ============
   const resumeExecution = useCallback(async () => {
@@ -374,13 +426,13 @@ export const useWorkflowEditor = (workflowId?: number) => {
       const result = await workflowApi.resumeExecution(workflow.id);
       setIsPaused(false);
       setExecutionStatus('running');
-      showToast('success', result.message || 'Execution resumed');
+      showAutoCloseToast('success', result.message || 'Execution resumed', 3000);
       return result;
     } catch (error: any) {
       showToast('error', error.message || 'Failed to resume execution');
       throw error;
     }
-  }, [workflow, showToast]);
+  }, [workflow, showAutoCloseToast, showToast]);
 
   // ============ CANCEL EXECUTION ============
   const cancelExecution = useCallback(async () => {
@@ -394,15 +446,14 @@ export const useWorkflowEditor = (workflowId?: number) => {
       setIsExecuting(false);
       setExecutionStatus('cancelled');
       stopPolling();
-      setEmailLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ Cancelled`]);
-      showToast('success', result.message || 'Execution cancelled');
+      showAutoCloseToast('success', result.message || 'Execution cancelled', 3000);
       setNodes(prev => prev.map(node => ({ ...node, data: { ...node.data, status: 'idle' } })));
       return result;
     } catch (error: any) {
       showToast('error', error.message || 'Failed to cancel execution');
       throw error;
     }
-  }, [workflow, stopPolling, showToast]);
+  }, [workflow, stopPolling, showAutoCloseToast, showToast]);
 
   // ============ CLEANUP EXECUTION ============
   const cleanupExecution = useCallback(async () => {
@@ -420,11 +471,11 @@ export const useWorkflowEditor = (workflowId?: number) => {
       setEmailLogs([]);
       stopPolling();
       setNodes(prev => prev.map(node => ({ ...node, data: { ...node.data, status: 'idle' } })));
-      showToast('success', 'Execution cleaned up');
+      showAutoCloseToast('success', 'Execution cleaned up', 3000);
     } catch (error: any) {
       showToast('error', error.message || 'Failed to cleanup');
     }
-  }, [workflow, stopPolling, showToast]);
+  }, [workflow, stopPolling, showAutoCloseToast, showToast]);
 
   // ============ UPDATE METADATA ============
   const updateWorkflowMeta = useCallback((updates: Partial<Workflow>) => {
@@ -434,8 +485,14 @@ export const useWorkflowEditor = (workflowId?: number) => {
 
   // ============ CLEANUP ============
   useEffect(() => {
-    return () => stopPolling();
-  }, [stopPolling]);
+    return () => {
+      stopPolling();
+      // Clear any pending toast
+      if (toastId) {
+        removeToast(toastId);
+      }
+    };
+  }, [stopPolling, toastId, removeToast]);
 
   // ============ AUTO-SAVE ============
   useEffect(() => {
@@ -466,7 +523,6 @@ export const useWorkflowEditor = (workflowId?: number) => {
     if (workflowId) {
       loadWorkflow(workflowId);
     } else {
-      console.log('📝 Starting new workflow');
       setNodes([]);
       setEdges([]);
       setSelectedNode(null);
@@ -476,6 +532,8 @@ export const useWorkflowEditor = (workflowId?: number) => {
         jsonData: '{"nodes":[],"edges":[]}',
         status: 'draft',
         description: '',
+        id: 0,
+        createdAt: new Date().toISOString(),
       } as Workflow);
       
       localStorage.removeItem('workflowNodes');
@@ -488,14 +546,31 @@ export const useWorkflowEditor = (workflowId?: number) => {
     if (workflowId) {
       const checkExisting = async () => {
         try {
-          const status = await workflowApi.getStatus(workflowId);
-          if (['running', 'paused'].includes(status.status)) {
-            setExecutionId(status.executionId);
-            setExecutionStatus(status.status);
-            setExecutionProgress(status.progress);
+          const statusResponse = await workflowApi.getStatus(workflowId);
+          const statusData = statusResponse.data || statusResponse;
+          const currentStatus = statusData.status || statusResponse.status;
+          const hasSuccess = statusResponse.success === true || statusData.success === true;
+          
+          // If success is true, mark as completed
+          if (hasSuccess) {
+            setExecutionStatus('completed');
+            setExecutionProgress(100);
+            return;
+          }
+          
+          // Check if execution is running or paused
+          if (['running', 'paused', 'pending'].includes(currentStatus)) {
+            setExecutionId(statusData.executionId || statusResponse.executionId);
+            setExecutionStatus(currentStatus);
+            setExecutionProgress(statusData.progress || statusResponse.progress || 0);
             setIsExecuting(true);
-            if (status.status === 'paused') setIsPaused(true);
+            if (currentStatus === 'paused') setIsPaused(true);
             startPolling(workflowId);
+          } 
+          // Check if execution completed successfully
+          else if (isExecutionSuccessful(currentStatus)) {
+            setExecutionStatus('completed');
+            setExecutionProgress(100);
           }
         } catch (error) {
           console.error('Error checking execution:', error);
@@ -505,15 +580,6 @@ export const useWorkflowEditor = (workflowId?: number) => {
     }
   }, [workflowId, startPolling]);
 
-  // ============ DEBUG: Log edges on change ============
-  useEffect(() => {
-    console.log(`📊 EDGES CHANGED: ${edges.length} edges`);
-    if (edges.length > 0) {
-      console.log('🔗 Current edges:', JSON.stringify(edges, null, 2));
-    }
-  }, [edges]);
-
-  // ============ RETURN ============
   return {
     nodes,
     setNodes,
@@ -543,7 +609,6 @@ export const useWorkflowEditor = (workflowId?: number) => {
     executionId,
     executionProgress,
     executionStatus,
-    pollingAttempts,
     loadWorkflow,
     saveWorkflow,
     executeWorkflow,
@@ -554,5 +619,7 @@ export const useWorkflowEditor = (workflowId?: number) => {
     updateWorkflowMeta,
     setExecutionId,
     stopPolling,
+    isExecutionComplete,
+    isExecutionSuccessful,
   };
 };
