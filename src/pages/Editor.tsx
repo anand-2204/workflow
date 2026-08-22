@@ -1,24 +1,15 @@
-// Editor.tsx - Minimal version with workflow ID in popup
+// Editor.tsx
 import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Node, Edge, Connection } from 'reactflow';
 import {
-  GitBranch,
-  PlayCircle,
-  Save,
-  Loader2,
-  X,
-  Pause,
-  Square,
-  RefreshCw,
-  CirclePlay,
-  CircleStop,
-  CheckCircle,
-  AlertCircle,
-  PauseCircle
+  GitBranch, PlayCircle, Save, Loader2, X, Pause, Square, RefreshCw,
+  CirclePlay, CircleStop, CheckCircle, AlertCircle, PauseCircle,
+  ArrowRight, ArrowLeft, Menu, PanelRightClose
 } from 'lucide-react';
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { WorkflowCanvas } from '../components/canvas/WorkflowCanvas';
+// ✅ PURANA PROPERTIES PANEL IMPORT KAREIN (HorizontalPropertiesPanel HATA DIYA)
 import { PropertiesPanel } from '../components/PropertiesPanel';
 import { useWorkflowEditor } from '../hooks/useWorkflowEditor';
 import { useToast } from '../hooks/useToast';
@@ -38,7 +29,7 @@ const isExecutionSuccessful = (status?: string): boolean => {
          status.toLowerCase() === 'success';
 };
 
-// ============= COMPLETION MODAL - MINIMAL WITH WORKFLOW ID =============
+// ============= COMPLETION MODAL =============
 
 const CompletionModal: React.FC<{
   isOpen: boolean;
@@ -70,20 +61,13 @@ const CompletionModal: React.FC<{
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className={`bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 border-2 ${getStatusColor()} animate-scale-in`}>
         <div className="flex flex-col items-center text-center">
-          <h3 className="text-lg font-bold text-gray-800">
-            {getStatusTitle()}
-          </h3>
-
+          <h3 className="text-lg font-bold text-gray-800">{getStatusTitle()}</h3>
           {workflowId && (
             <p className="text-sm text-gray-500 mt-1">
               Workflow ID: <span className="font-mono text-gray-700">{workflowId}</span>
             </p>
           )}
-
-          <button
-            onClick={onClose}
-            className="w-full mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all"
-          >
+          <button onClick={onClose} className="w-full mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all">
             Close
           </button>
         </div>
@@ -98,44 +82,24 @@ export default function Editor() {
   const { workflowId } = useParams<{ workflowId: string }>();
   const navigate = useNavigate();
   const { toasts, showToast, removeToast } = useToast();
-  
+
+  // Sidebar Toggle State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [previousExecutionStatus, setPreviousExecutionStatus] = useState<string | undefined>();
-  const [executionResult, setExecutionResult] = useState<{
-    status: string;
-  } | null>(null);
+  const [executionResult, setExecutionResult] = useState<{ status: string; } | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [executionStartedByUser, setExecutionStartedByUser] = useState(false);
 
   const {
-    nodes,
-    setNodes,
-    edges,
-    setEdges,
-    selectedNode,
-    setSelectedNode,
-    workflow,
-    isLoading,
-    isSaving,
-    isExecuting,
-    isPaused,
-    isDirty,
-    setIsDirty,
-    canvasRef,
-    executionId,
-    executionProgress,
-    executionStatus,
-    saveWorkflow,
-    executeWorkflow: originalExecuteWorkflow,
-    pauseExecution,
-    resumeExecution,
-    cancelExecution,
-    cleanupExecution,
-    updateWorkflowMeta,
-    loadWorkflow,
+    nodes, setNodes, edges, setEdges, selectedNode, setSelectedNode,
+    workflow, isLoading, isSaving, isExecuting, isPaused, isDirty, setIsDirty,
+    canvasRef, executionId, executionProgress, executionStatus,
+    saveWorkflow, executeWorkflow: originalExecuteWorkflow, pauseExecution,
+    resumeExecution, cancelExecution, cleanupExecution, updateWorkflowMeta, loadWorkflow,
   } = useWorkflowEditor(workflowId ? parseInt(workflowId) : undefined);
 
-  // Wrap executeWorkflow to track user initiation
   const executeWorkflow = useCallback(async () => {
     setExecutionStartedByUser(true);
     setExecutionResult(null);
@@ -150,7 +114,6 @@ export default function Editor() {
     setIsInitialLoad(true);
   }, [workflowId, loadWorkflow]);
 
-  // Monitor execution status changes
   useEffect(() => {
     if (isInitialLoad) {
       setIsInitialLoad(false);
@@ -162,11 +125,8 @@ export default function Editor() {
     const isComplete = executionStatus && isExecutionComplete(executionStatus);
     
     if (statusChanged && isComplete && executionStartedByUser) {
-      setExecutionResult({
-        status: executionStatus,
-      });
+      setExecutionResult({ status: executionStatus });
 
-      // Show toast notification
       if (isExecutionSuccessful(executionStatus)) {
         showToast('success', 'Workflow completed successfully!');
       } else if (executionStatus === 'failed' || executionStatus === 'error') {
@@ -175,7 +135,6 @@ export default function Editor() {
         showToast('warning', 'Workflow execution cancelled.');
       }
 
-      // Show completion modal
       setTimeout(() => {
         setShowCompletionModal(true);
       }, 500);
@@ -184,15 +143,8 @@ export default function Editor() {
     }
 
     setPreviousExecutionStatus(executionStatus);
-  }, [
-    executionStatus, 
-    previousExecutionStatus, 
-    showToast, 
-    isInitialLoad,
-    executionStartedByUser
-  ]);
+  }, [executionStatus, previousExecutionStatus, showToast, isInitialLoad, executionStartedByUser]);
 
-  // Handle execution start toast
   useEffect(() => {
     if (isInitialLoad) return;
     
@@ -276,7 +228,6 @@ export default function Editor() {
     }
   };
 
-  // Render execution status badge
   const renderExecutionStatusBadge = () => {
     if (!executionStatus || !isExecutionComplete(executionStatus)) return null;
     
@@ -312,24 +263,6 @@ export default function Editor() {
     );
   };
 
-  // Clean up node data to remove status labels
-  const cleanNodes = useCallback(() => {
-    return nodes.map(node => {
-      const cleanLabel = node.data?.label?.replace(/\s*\(Running\.\.\.\)\s*$/, '').trim() || node.data?.label;
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          label: cleanLabel,
-          status: undefined,
-          progress: undefined,
-          result: undefined,
-          error: undefined,
-        }
-      };
-    });
-  }, [nodes]);
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -363,7 +296,7 @@ export default function Editor() {
         ))}
       </div>
 
-      {/* Completion Modal - Minimal with Workflow ID */}
+      {/* Completion Modal */}
       {executionResult && (
         <CompletionModal
           isOpen={showCompletionModal}
@@ -374,25 +307,40 @@ export default function Editor() {
       )}
 
       {/* Sidebar */}
-      <aside className="w-[320px] min-w-[320px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-        <div className="px-4 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-gray-50 to-transparent">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <GitBranch size={16} className="text-white" />
+      {isSidebarOpen && (
+        <aside className="w-[320px] min-w-[320px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0 z-20 animate-slide-in-left">
+          <div className="px-4 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-gray-50 to-transparent">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <GitBranch size={16} className="text-white" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-gray-800">Nodes Panel</h2>
+                <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-gray-800">Nodes Panel</h2>
-              <p className="text-[10px] text-gray-500">{nodes.length} nodes on canvas</p>
-            </div>
+            <button onClick={() => setIsSidebarOpen(false)} className="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors">
+              <PanelRightClose size={16} />
+            </button>
           </div>
-        </div>
-        <Sidebar onAddNode={() => {}} />
-      </aside>
+          <Sidebar onAddNode={() => {}} />
+        </aside>
+      )}
 
-      {/* Canvas */}
+      {/* Main Canvas Area */}
       <main className="flex-1 flex flex-col overflow-hidden bg-gray-50">
-        {/* Header - Minimal */}
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center px-6 flex-shrink-0">
+        {/* Header */}
+        <header className="h-14 bg-white border-b border-gray-200 flex items-center px-4 flex-shrink-0">
+          
+          {!isSidebarOpen && (
+            <button 
+              onClick={() => setIsSidebarOpen(true)} 
+              className="p-2 mr-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
+            >
+              <Menu size={20} />
+            </button>
+          )}
+
           <div className="flex items-center gap-3 flex-1">
             <input
               type="text"
@@ -415,12 +363,10 @@ export default function Editor() {
               </span>
             )}
 
-            {/* Execution Status Badge */}
             {renderExecutionStatusBadge()}
           </div>
           
           <div className="flex items-center gap-1.5">
-            {/* Save Button */}
             <button
               onClick={saveWorkflow}
               disabled={isSaving || !isDirty}
@@ -430,7 +376,6 @@ export default function Editor() {
               Save
             </button>
 
-            {/* Run Button */}
             {!isExecuting ? (
               <button
                 onClick={executeWorkflow}
@@ -474,7 +419,7 @@ export default function Editor() {
           </div>
         </header>
 
-        {/* Progress Bar for Running Workflows */}
+        {/* Progress Bar */}
         {isExecuting && (
           <div className="h-1 bg-gray-200 w-full overflow-hidden">
             <div 
@@ -488,12 +433,13 @@ export default function Editor() {
           </div>
         )}
 
-        {/* Canvas + Properties */}
-        <div className="flex-1 flex overflow-hidden">
+        {/* Canvas + Properties Panel */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          
           <div className="flex-1 relative overflow-hidden">
             <WorkflowCanvas 
               ref={canvasRef}
-              nodes={cleanNodes()} 
+              nodes={nodes}
               setNodes={setNodes}
               edges={edges}
               setEdges={setEdges}
@@ -505,13 +451,52 @@ export default function Editor() {
             />
           </div>
 
-          {/* Properties Panel */}
+          {/* ✅ Horizontal Panel (80% Width, Center) - Purana PropertiesPanel */}
           {selectedNode && (
-            <PropertiesPanel 
-              node={selectedNode}
-              onUpdate={updateNodeProperties}
-              onClose={closeProperties}
-            />
+            <div className="h-[500px] w-[80%] mx-auto mb-4 border border-gray-200 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] flex flex-col animate-slide-up z-10 rounded-xl overflow-hidden">
+              
+              {/* Panel Header */}
+              <div className="h-12 px-4 border-b border-gray-200 flex items-center justify-between bg-gray-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                    <GitBranch size={16} className="text-blue-600" />
+                    {selectedNode.data?.label || 'Node'}
+                  </span>
+                  <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Properties</span>
+                </div>
+                <button onClick={closeProperties} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Split Content */}
+              <div className="flex-1 flex overflow-hidden">
+                
+                {/* LEFT: Input Config (Purana PropertiesPanel ab w-full hai) */}
+                <div className="w-1/2  border-r border-gray-200 overflow-hidden bg-white">
+                  <PropertiesPanel 
+                    node={selectedNode}
+                    onUpdate={updateNodeProperties}
+                    onClose={closeProperties}
+                  />
+                </div>
+
+                {/* RIGHT: Output / Execution Data */}
+                <div className="w-1/2 overflow-y-auto bg-gray-50/50 p-6">
+                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                    <ArrowLeft className="w-4 h-4 text-green-500" />
+                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Output / Execution Data</h4>
+                  </div>
+                  
+                  <div className="flex flex-col items-center justify-center h-[80%] text-center text-gray-400">
+                    <RefreshCw className="w-8 h-8 mb-3 opacity-50 animate-spin-slow" />
+                    <p className="text-sm font-medium">No output data</p>
+                    <p className="text-xs mt-1">Execute workflow to see results</p>
+                  </div>
+                </div>
+
+              </div>
+            </div>
           )}
         </div>
       </main>

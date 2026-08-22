@@ -1,3 +1,4 @@
+// components/PropertiesPanel.tsx
 import { useState, useCallback, useEffect } from 'react';
 import type { Node } from 'reactflow';
 import { X, Save, RefreshCw, GitBranch, CheckCircle, XCircle, Plus, Trash2, ChevronDown, Link } from 'lucide-react';
@@ -359,24 +360,13 @@ export const PropertiesPanel = ({ node, onUpdate, onClose, availableNodes = [] }
   // ==========================================
 
   return (
-    <div className="w-96 bg-white border-l border-gray-200 flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-transparent flex-shrink-0">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-800">Properties</h3>
-          <p className="text-[10px] text-gray-500">{node.data?.type || node.type || 'Node'}</p>
-        </div>
-        <button 
-          onClick={onClose}
-          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X size={16} />
-        </button>
-      </div>
-
+    // ✅ Fixed width (w-96) hata kar w-full kiya
+    <div className="w-full bg-white flex flex-col h-full overflow-hidden">
+      
+      {/* ✅ Purana Header hata diya (Ab yeh Editor.tsx handle karega) */}
+      
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Basic Fields */}
         {fields.map((field: any) => (
           <div key={field.key} className="space-y-1.5">
             <label className="text-xs font-medium text-gray-700 block">
