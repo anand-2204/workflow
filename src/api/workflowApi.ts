@@ -652,7 +652,45 @@ export const workflowApi = {
     if (!nodes || nodes.length === 0) return 0;
     const completed = nodes.filter(n => n.status === 'completed' || n.status === 'success').length;
     return Math.round((completed / nodes.length) * 100);
-  }
+  },
+
+
+      // 1. Individual Node Execute
+    
+      executeNode: async (id: number, nodeId: string): Promise<WorkflowExecutionResult> => {
+        try {
+          console.log(`Executing node ${nodeId} in workflow ${id}`);
+          const response = await apiClient.post(`/Workflow/${id}/nodes/${nodeId}/execute`);
+          console.log('Node execution response:', response.data);
+          
+          if (response.data && response.data.success) {
+            return {
+              executionId: response.data.data?.executionId || response.data.executionId || null,
+              status: response.data.data?.status || response.data.status || 'completed',
+              message: response.data.message,
+              outputData: response.data.data?.outputData || response.data.outputData || null
+            };
+          }
+          
+          return response.data;
+        } catch (error: any) {
+          console.error(`Error executing node ${nodeId} in workflow ${id}:`, error);
+          throw error;
+        }
+      },
+
+      // 2. Individual Execution Cancel
+      cancelNodeExecution: async (executionId: string): Promise<CancelExecutionResult> => {
+        try {
+          console.log(`Cancelling execution ${executionId}`);
+          const response = await apiClient.delete(`/Workflow/executions/${executionId}`);
+          console.log('Cancel execution response:', response.data);
+          return response.data;
+        } catch (error: any) {
+          console.error(`Error cancelling execution ${executionId}:`, error);
+          throw error;
+        }
+      },
 };
 
 export default workflowApi;

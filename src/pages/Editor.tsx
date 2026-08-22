@@ -438,16 +438,17 @@ export default function Editor() {
           
           <div className="flex-1 relative overflow-hidden">
             <WorkflowCanvas 
-              ref={canvasRef}
-              nodes={nodes}
-              setNodes={setNodes}
-              edges={edges}
-              setEdges={setEdges}
-              selectedNode={selectedNode}
-              setSelectedNode={setSelectedNode}
-              onUndoRedoChange={() => {}}
-              onNodeConfigChange={() => {}}
-              onConnect={onConnect}
+            ref={canvasRef}
+            workflowId={workflow?.id} 
+            nodes={nodes}
+            setNodes={setNodes}
+            edges={edges}
+            setEdges={setEdges}
+            selectedNode={selectedNode}
+            setSelectedNode={setSelectedNode}
+            onUndoRedoChange={() => {}}
+            onNodeConfigChange={() => {}}
+            onConnect={onConnect}
             />
           </div>
 
@@ -482,18 +483,49 @@ export default function Editor() {
                 </div>
 
                 {/* RIGHT: Output / Execution Data */}
-                <div className="w-1/2 overflow-y-auto bg-gray-50/50 p-6">
-                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
-                    <ArrowLeft className="w-4 h-4 text-green-500" />
-                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Output / Execution Data</h4>
+              <div className="w-1/2 overflow-y-auto bg-gray-50/50 p-6">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <ArrowLeft className="w-4 h-4 text-green-500" />
+                  <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Output / Execution Data</h4>
+                </div>
+                
+                {/* ✅ Dynamic Output Dikhane ke liye */}
+                {selectedNode?.data?.executionResult ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <span className="text-xs font-medium text-green-700">Execution Successful</span>
+                    </div>
+                    
+                    <div className="p-3 bg-white rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1">Execution ID:</p>
+                      <p className="text-sm font-mono text-gray-800 break-all">
+                        {selectedNode.data.executionResult.executionId || 'N/A'}
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-white rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1">Status:</p>
+                      <p className="text-sm font-medium text-gray-800">{selectedNode.data.executionResult.status || 'Success'}</p>
+                    </div>
+
+                    {/* JSON Output */}
+                    <div className="p-3 bg-white rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1">Data:</p>
+                      <pre className="text-sm font-mono text-gray-800 whitespace-pre-wrap break-all max-h-48 overflow-y-auto bg-gray-50 p-2 rounded">
+                        {JSON.stringify(selectedNode.data.executionResult, null, 2)}
+                      </pre>
+                    </div>
                   </div>
-                  
+                ) : (
+                  /* Agar execution nahi hua hai toh placeholder */
                   <div className="flex flex-col items-center justify-center h-[80%] text-center text-gray-400">
                     <RefreshCw className="w-8 h-8 mb-3 opacity-50 animate-spin-slow" />
                     <p className="text-sm font-medium">No output data</p>
-                    <p className="text-xs mt-1">Execute workflow to see results</p>
+                    <p className="text-xs mt-1">Click the Run button on a node to see results</p>
                   </div>
-                </div>
+                )}
+              </div>
 
               </div>
             </div>
